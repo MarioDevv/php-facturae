@@ -1,0 +1,16 @@
+{
+  "name": "mariodevv/rex",
+  "autoload": {
+    "psr-4": {
+      "MarioDevv\\Rex\\Verifactu": "src/Verifactu",
+      "MarioDevv\\Rex\\Facturae": "src/Facturae"
+    }
+  },
+  "authors": [
+    {
+      "name": "MarioDevv",
+      "email": "perezmario.info@gmail.com"
+    }
+  ],
+  "require": {}
+}
