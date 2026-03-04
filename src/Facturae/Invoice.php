@@ -9,6 +9,7 @@ use MarioDevv\Rex\Facturae\Entities\Line;
 use MarioDevv\Rex\Facturae\Entities\Payment;
 use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
 use MarioDevv\Rex\Facturae\Enums\CorrectionMethod;
+use MarioDevv\Rex\Facturae\Enums\CorrectionReason;
 use MarioDevv\Rex\Facturae\Enums\InvoiceType;
 use MarioDevv\Rex\Facturae\Enums\PaymentMethod;
 use MarioDevv\Rex\Facturae\Enums\Schema;
@@ -20,29 +21,35 @@ use MarioDevv\Rex\Facturae\Validation\InvoiceValidator;
 
 final class Invoice
 {
-    private string            $number;
-    private string            $series = '';
-    private DateTimeImmutable $issueDate;
-    private Schema            $schema = Schema::V3_2_2;
-    private InvoiceType       $type = InvoiceType::Full;
-    private string            $currency = 'EUR';
-    private ?string           $description = null;
-    private ?Party            $seller = null;
-    private ?Party            $buyer = null;
+    private string             $number;
+    private string             $series             = '';
+    private DateTimeImmutable  $issueDate;
+    private ?DateTimeImmutable $operationDate      = null;
+    private ?DateTimeImmutable $billingPeriodStart = null;
+    private ?DateTimeImmutable $billingPeriodEnd   = null;
+    private Schema             $schema             = Schema::V3_2_2;
+    private InvoiceType        $type               = InvoiceType::Full;
+    private string             $currency           = 'EUR';
+    private ?string            $description        = null;
+    private ?Party             $seller             = null;
+    private ?Party             $buyer              = null;
     /** @var Line[] */
-    private array             $lines = [];
+    private array $lines = [];
     /** @var Payment[] */
-    private array             $payments = [];
-    private ?string           $correctedNumber = null;
-    private ?string           $correctedSerie = null;
-    private ?CorrectionMethod $correctionMethod = null;
-    private ?string           $correctionDescription = null;
-    private ?string           $legalLiteral = null;
-    private ?InvoiceSigner    $signer = null;
+    private array              $payments              = [];
+    private ?string            $correctedNumber       = null;
+    private ?string            $correctedSeries       = null;
+    private ?CorrectionMethod  $correctionMethod      = null;
+    private ?CorrectionReason  $correctionReason      = null;
+    private ?DateTimeImmutable $correctionPeriodStart = null;
+    private ?DateTimeImmutable $correctionPeriodEnd   = null;
+    private bool               $isCorrective          = false;
+    private ?string            $legalLiteral          = null;
+    private ?InvoiceSigner     $signer                = null;
 
     private function __construct(string $number)
     {
-        $this->number = $number;
+        $this->number    = $number;
         $this->issueDate = new DateTimeImmutable();
     }
 
@@ -51,17 +58,41 @@ final class Invoice
         return new self($number);
     }
 
-    // ─── Fluent API ──────────────────────────────────────
+    // ─── Core ────────────────────────────────────────────
 
-    public function serie(string $serie): self
+    public function series(string $series): self
     {
-        $this->series = $serie;
+        $this->series = $series;
         return $this;
     }
 
     public function date(string|DateTimeImmutable $date): self
     {
         $this->issueDate = is_string($date) ? new DateTimeImmutable($date) : $date;
+        return $this;
+    }
+
+    /**
+     * Fecha de operacion (devengo) — cuando difiere de la fecha de emision.
+     */
+    public function operationDate(string|DateTimeImmutable $date): self
+    {
+        $this->operationDate = is_string($date) ? new DateTimeImmutable($date) : $date;
+        return $this;
+    }
+
+    /**
+     * Periodo de facturacion para servicios periodicos.
+     *
+     *     ->billingPeriod(from: '2024-12-01', to: '2024-12-31')
+     */
+    public function billingPeriod(
+        string|DateTimeImmutable $from,
+        string|DateTimeImmutable $to,
+    ): self
+    {
+        $this->billingPeriodStart = is_string($from) ? new DateTimeImmutable($from) : $from;
+        $this->billingPeriodEnd   = is_string($to) ? new DateTimeImmutable($to) : $to;
         return $this;
     }
 
@@ -101,12 +132,15 @@ final class Invoice
         return $this;
     }
 
+    // ─── Lines ───────────────────────────────────────────
+
     /**
-     * Add a line item with Spanish tax shortcuts.
+     * Linea con atajos fiscales espanoles.
      *
      *     ->line('Lampara de pie', quantity: 3, price: 20.14, vat: 21)
      *     ->line('Consultoria', price: 500, vat: 21, irpf: 15)
      *     ->line('Producto Canarias', price: 100, igic: 7)
+     *     ->line('Joyeria', price: 200, vat: 21, surcharge: 5.2)
      */
     public function line(
         string  $description,
@@ -115,22 +149,31 @@ final class Invoice
         ?float  $vat = null,
         ?float  $irpf = null,
         ?float  $igic = null,
+        ?float  $surcharge = null,
         ?float  $discount = null,
         ?string $articleCode = null,
         ?string $detailedDescription = null,
-    ): self {
+    ): self
+    {
         $taxes = [];
-        if ($vat !== null)  { $taxes[] = new TaxBreakdown(Tax::IVA, $vat); }
-        if ($irpf !== null) { $taxes[] = new TaxBreakdown(Tax::IRPF, $irpf, isWithholding: true); }
-        if ($igic !== null) { $taxes[] = new TaxBreakdown(Tax::IGIC, $igic); }
+
+        if ($vat !== null) {
+            $taxes[] = new TaxBreakdown(Tax::IVA, $vat, surchargeRate: $surcharge);
+        }
+        if ($irpf !== null) {
+            $taxes[] = new TaxBreakdown(Tax::IRPF, $irpf, isWithholding: true);
+        }
+        if ($igic !== null) {
+            $taxes[] = new TaxBreakdown(Tax::IGIC, $igic);
+        }
 
         $this->lines[] = new Line(
-            description: $description,
-            quantity: $quantity,
-            unitPrice: $price,
-            taxes: $taxes,
-            articleCode: $articleCode,
-            discount: $discount,
+            description        : $description,
+            quantity           : $quantity,
+            unitPrice          : $price,
+            taxes              : $taxes,
+            articleCode        : $articleCode,
+            discount           : $discount,
             detailedDescription: $detailedDescription,
         );
 
@@ -138,7 +181,32 @@ final class Invoice
     }
 
     /**
-     * Add a line with custom tax configuration.
+     * Linea exenta — intencion explicita, sin impuestos.
+     *
+     *     ->exemptLine('Formacion bonificada', price: 2000)
+     */
+    public function exemptLine(
+        string  $description,
+        float   $price,
+        float   $quantity = 1,
+        ?float  $discount = null,
+        ?string $articleCode = null,
+    ): self
+    {
+        $this->lines[] = new Line(
+            description: $description,
+            quantity   : $quantity,
+            unitPrice  : $price,
+            taxes      : [],
+            articleCode: $articleCode,
+            discount   : $discount,
+        );
+
+        return $this;
+    }
+
+    /**
+     * Linea con configuracion de impuestos personalizada.
      *
      * @param TaxBreakdown[] $taxes
      */
@@ -149,18 +217,21 @@ final class Invoice
         float   $quantity = 1,
         ?float  $discount = null,
         ?string $articleCode = null,
-    ): self {
+    ): self
+    {
         $this->lines[] = new Line(
             description: $description,
-            quantity: $quantity,
-            unitPrice: $price,
-            taxes: $taxes,
+            quantity   : $quantity,
+            unitPrice  : $price,
+            taxes      : $taxes,
             articleCode: $articleCode,
-            discount: $discount,
+            discount   : $discount,
         );
 
         return $this;
     }
+
+    // ─── Payments ────────────────────────────────────────
 
     public function payment(Payment $payment): self
     {
@@ -169,39 +240,125 @@ final class Invoice
     }
 
     /**
-     * Shorthand: transfer payment.
+     * Pago por transferencia bancaria.
      *
-     *     ->transferPayment(iban: 'ES00 0000 0000 0000 0000', dueDate: '2024-12-31')
+     *     ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-12-31')
      */
     public function transferPayment(
         string  $iban,
         ?string $dueDate = null,
         ?float  $amount = null,
-    ): self {
-        $this->payments[] = new Payment(
-            method: PaymentMethod::Transfer,
-            dueDate: $dueDate ? new DateTimeImmutable($dueDate) : null,
-            amount: $amount,
-            iban: str_replace(' ', '', $iban),
-        );
+    ): self
+    {
+        return $this->addPayment(PaymentMethod::Transfer, $dueDate, $amount, $iban);
+    }
+
+    /**
+     * Pago en efectivo.
+     *
+     *     ->cashPayment()
+     *     ->cashPayment(dueDate: '2024-12-31')
+     */
+    public function cashPayment(?string $dueDate = null, ?float $amount = null): self
+    {
+        return $this->addPayment(PaymentMethod::Cash, $dueDate, $amount);
+    }
+
+    /**
+     * Pago con tarjeta.
+     *
+     *     ->cardPayment(dueDate: '2024-12-31')
+     */
+    public function cardPayment(?string $dueDate = null, ?float $amount = null): self
+    {
+        return $this->addPayment(PaymentMethod::Card, $dueDate, $amount);
+    }
+
+    /**
+     * Pago por domiciliacion bancaria (recibo).
+     *
+     *     ->directDebitPayment(iban: 'ES91...', dueDate: '2024-12-31')
+     */
+    public function directDebitPayment(
+        string  $iban,
+        ?string $dueDate = null,
+        ?float  $amount = null,
+    ): self
+    {
+        return $this->addPayment(PaymentMethod::DirectDebit, $dueDate, $amount, $iban);
+    }
+
+    /**
+     * Fraccionar el pago en N plazos iguales.
+     *
+     *     ->splitPayments(
+     *         method: PaymentMethod::Transfer,
+     *         installments: 3,
+     *         firstDueDate: '2025-01-31',
+     *         intervalDays: 30,
+     *         iban: 'ES91...',
+     *     )
+     */
+    public function splitPayments(
+        PaymentMethod $method,
+        int           $installments,
+        string        $firstDueDate,
+        int           $intervalDays = 30,
+        ?string       $iban = null,
+    ): self
+    {
+        $date = new DateTimeImmutable($firstDueDate);
+
+        for ($i = 0; $i < $installments; $i++) {
+            $this->payments[] = new Payment(
+                method           : $method,
+                dueDate          : $date,
+                amount           : null, // se calcula en export: total / installments
+                iban             : $iban ? str_replace(' ', '', $iban) : null,
+                installmentIndex : $i,
+                totalInstallments: $installments,
+            );
+
+            $date = $date->modify("+{$intervalDays} days");
+        }
 
         return $this;
     }
 
+    // ─── Corrective ──────────────────────────────────────
+
     /**
-     * Mark as corrective invoice (rectificativa).
+     * Marcar como factura rectificativa.
+     *
+     *     ->corrects(
+     *         invoiceNumber: 'FAC-000',
+     *         reason: CorrectionReason::TaxableBase,
+     *         periodStart: '2024-01-01',
+     *         periodEnd: '2024-03-31',
+     *     )
      */
     public function corrects(
-        string           $invoiceNumber,
-        string           $reason,
-        CorrectionMethod $method = CorrectionMethod::FullReplacement,
-        ?string          $serie = null,
-    ): self {
-        $this->type = InvoiceType::CorrectedFull;
-        $this->correctedNumber = $invoiceNumber;
-        $this->correctedSerie = $serie;
+        string                        $invoiceNumber,
+        CorrectionReason              $reason = CorrectionReason::TransactionDetail,
+        CorrectionMethod              $method = CorrectionMethod::FullReplacement,
+        ?string                       $series = null,
+        string|DateTimeImmutable|null $periodStart = null,
+        string|DateTimeImmutable|null $periodEnd = null,
+    ): self
+    {
+        $this->isCorrective     = true;
+        $this->correctedNumber  = $invoiceNumber;
+        $this->correctedSeries  = $series;
         $this->correctionMethod = $method;
-        $this->correctionDescription = $reason;
+        $this->correctionReason = $reason;
+
+        // Default tax period: issue date for both start and end
+        $this->correctionPeriodStart = $periodStart !== null
+            ? (is_string($periodStart) ? new DateTimeImmutable($periodStart) : $periodStart)
+            : null;
+        $this->correctionPeriodEnd   = $periodEnd !== null
+            ? (is_string($periodEnd) ? new DateTimeImmutable($periodEnd) : $periodEnd)
+            : null;
 
         return $this;
     }
@@ -250,25 +407,141 @@ final class Invoice
         }
     }
 
-    // ─── Getters (for Exporter/Validator) ────────────────
+    // ─── Private ─────────────────────────────────────────
 
-    public function getNumber(): string                          { return $this->number; }
-    public function getSeries(): string                           { return $this->series; }
-    public function getIssueDate(): DateTimeImmutable            { return $this->issueDate; }
-    public function getSchema(): Schema                          { return $this->schema; }
-    public function getType(): InvoiceType                       { return $this->type; }
-    public function getCurrency(): string                        { return $this->currency; }
-    public function getDescription(): ?string                    { return $this->description; }
-    public function getSeller(): ?Party                          { return $this->seller; }
-    public function getBuyer(): ?Party                           { return $this->buyer; }
+    private function addPayment(
+        PaymentMethod $method,
+        ?string       $dueDate,
+        ?float        $amount,
+        ?string       $iban = null,
+    ): self
+    {
+        $this->payments[] = new Payment(
+            method : $method,
+            dueDate: $dueDate ? new DateTimeImmutable($dueDate) : null,
+            amount : $amount,
+            iban   : $iban ? str_replace(' ', '', $iban) : null,
+        );
+
+        return $this;
+    }
+
+    // ─── Getters ─────────────────────────────────────────
+
+    public function getNumber(): string
+    {
+        return $this->number;
+    }
+
+    public function getSeries(): string
+    {
+        return $this->series;
+    }
+
+    public function getIssueDate(): DateTimeImmutable
+    {
+        return $this->issueDate;
+    }
+
+    public function getOperationDate(): ?DateTimeImmutable
+    {
+        return $this->operationDate;
+    }
+
+    public function getBillingPeriodStart(): ?DateTimeImmutable
+    {
+        return $this->billingPeriodStart;
+    }
+
+    public function getBillingPeriodEnd(): ?DateTimeImmutable
+    {
+        return $this->billingPeriodEnd;
+    }
+
+    public function getSchema(): Schema
+    {
+        return $this->schema;
+    }
+
+    public function getType(): InvoiceType
+    {
+        return $this->type;
+    }
+
+    public function getCurrency(): string
+    {
+        return $this->currency;
+    }
+
+    public function getDescription(): ?string
+    {
+        return $this->description;
+    }
+
+    public function getSeller(): ?Party
+    {
+        return $this->seller;
+    }
+
+    public function getBuyer(): ?Party
+    {
+        return $this->buyer;
+    }
+
     /** @return Line[] */
-    public function getLines(): array                            { return $this->lines; }
+    public function getLines(): array
+    {
+        return $this->lines;
+    }
+
     /** @return Payment[] */
-    public function getPayments(): array                         { return $this->payments; }
-    public function getCorrectedNumber(): ?string                { return $this->correctedNumber; }
-    public function getCorrectedSerie(): ?string                 { return $this->correctedSerie; }
-    public function getCorrectionMethod(): ?CorrectionMethod     { return $this->correctionMethod; }
-    public function getCorrectionDescription(): ?string          { return $this->correctionDescription; }
-    public function getLegalLiteral(): ?string                    { return $this->legalLiteral; }
-    public function getSigner(): ?InvoiceSigner                  { return $this->signer; }
+    public function getPayments(): array
+    {
+        return $this->payments;
+    }
+
+    public function getCorrectedNumber(): ?string
+    {
+        return $this->correctedNumber;
+    }
+
+    public function getCorrectedSeries(): ?string
+    {
+        return $this->correctedSeries;
+    }
+
+    public function getCorrectionMethod(): ?CorrectionMethod
+    {
+        return $this->correctionMethod;
+    }
+
+    public function getCorrectionReason(): ?CorrectionReason
+    {
+        return $this->correctionReason;
+    }
+
+    public function getCorrectionPeriodStart(): ?DateTimeImmutable
+    {
+        return $this->correctionPeriodStart;
+    }
+
+    public function getCorrectionPeriodEnd(): ?DateTimeImmutable
+    {
+        return $this->correctionPeriodEnd;
+    }
+
+    public function isCorrective(): bool
+    {
+        return $this->isCorrective;
+    }
+
+    public function getLegalLiteral(): ?string
+    {
+        return $this->legalLiteral;
+    }
+
+    public function getSigner(): ?InvoiceSigner
+    {
+        return $this->signer;
+    }
 }

@@ -1,33 +1,23 @@
 <?php
+
 declare(strict_types=1);
+
 namespace MarioDevv\Rex\Tests\Facturae;
 
+use MarioDevv\Rex\Facturae\Exceptions\InvoiceValidationException;
 use MarioDevv\Rex\Facturae\Invoice;
 use MarioDevv\Rex\Facturae\Party;
-use MarioDevv\Rex\Facturae\Enums\CorrectionMethod;
-use MarioDevv\Rex\Facturae\Exceptions\InvoiceValidationException;
+use MarioDevv\Rex\Tests\Facturae\Mother\InvoiceMother;
 use PHPUnit\Framework\TestCase;
 
 final class InvoiceTest extends TestCase
 {
-    private function validInvoice(): Invoice
-    {
-        return Invoice::create('FAC-001')
-            ->date('2024-01-15')
-            ->seller(
-                Party::company('A00000000', 'Empresa Test S.L.')
-                    ->address('C/ Test, 1', '28001', 'Madrid', 'Madrid')
-            )
-            ->buyer(
-                Party::person('00000000A', 'Juan', 'Garcia', 'Lopez')
-                    ->address('C/ Comprador', '08001', 'Barcelona', 'Barcelona')
-            )
-            ->line('Servicio de consultoria', price: 1000.00, vat: 21);
-    }
+    // ─── XML generation ──────────────────────────────────
 
     public function test_creates_valid_xml(): void
     {
-        $xml = $this->validInvoice()->toXml();
+        $xml = InvoiceMother::simple()->toXml();
+
         $this->assertStringContainsString('FAC-001', $xml);
         $this->assertStringContainsString('A00000000', $xml);
         $this->assertStringContainsString('Servicio de consultoria', $xml);
@@ -36,39 +26,167 @@ final class InvoiceTest extends TestCase
     public function test_xml_is_valid_dom(): void
     {
         $dom = new \DOMDocument();
-        $this->assertTrue($dom->loadXML($this->validInvoice()->toXml()));
+        $this->assertTrue($dom->loadXML(InvoiceMother::simple()->toXml()));
     }
+
+    // ─── Totals ──────────────────────────────────────────
 
     public function test_calculates_totals(): void
     {
-        $xml = $this->validInvoice()->toXml();
+        $xml = InvoiceMother::simple()->toXml();
+
         $this->assertStringContainsString('<TotalTaxOutputs>210.00</TotalTaxOutputs>', $xml);
         $this->assertStringContainsString('<InvoiceTotal>1210.00</InvoiceTotal>', $xml);
     }
 
     public function test_irpf_withheld(): void
     {
-        $xml = Invoice::create('FAC-002')->date('2024-06-01')
-            ->seller(
-                Party::company('A00000000', 'Empresa S.L.')
-                    ->address('C/ Test', '28001', 'Madrid', 'Madrid')
-            )
-            ->buyer(
-                Party::person('00000000A', 'Ana', 'Perez')
-                    ->address('C/ Otra', '28002', 'Madrid', 'Madrid')
-            )
-            ->line('Producto A', price: 100, quantity: 2, vat: 21)
-            ->line('Servicio B', price: 500, vat: 21, irpf: 15)
-            ->toXml();
+        $xml = InvoiceMother::withIrpf()->toXml();
+
         $this->assertStringContainsString('<TotalGrossAmount>700.00</TotalGrossAmount>', $xml);
         $this->assertStringContainsString('<TotalTaxOutputs>147.00</TotalTaxOutputs>', $xml);
         $this->assertStringContainsString('<TotalTaxesWithheld>75.00</TotalTaxesWithheld>', $xml);
         $this->assertStringContainsString('<InvoiceTotal>772.00</InvoiceTotal>', $xml);
     }
 
+    public function test_discount(): void
+    {
+        $xml = InvoiceMother::withDiscount()->toXml();
+
+        $this->assertStringContainsString('<GrossAmount>90.00</GrossAmount>', $xml);
+    }
+
+    public function test_igic(): void
+    {
+        $xml = InvoiceMother::canaryIgic()->toXml();
+
+        $this->assertStringContainsString('<TotalTaxOutputs>139.69</TotalTaxOutputs>', $xml);
+        $this->assertStringContainsString('<InvoiceTotal>2135.19</InvoiceTotal>', $xml);
+    }
+
+    // ─── Surcharge (recargo de equivalencia) ─────────────
+
+    public function test_surcharge(): void
+    {
+        $xml = InvoiceMother::withSurcharge()->toXml();
+
+        $this->assertStringContainsString('<EquivalenceSurcharge>5.20</EquivalenceSurcharge>', $xml);
+        // Base: 450 + 85 = 535, IVA 21% = 112.35, Surcharge 5.2% = 27.82 => Total = 675.17
+        $this->assertStringContainsString('<InvoiceTotal>675.17</InvoiceTotal>', $xml);
+    }
+
+    // ─── Payment methods ─────────────────────────────────
+
+    public function test_transfer_payment(): void
+    {
+        $xml = InvoiceMother::simple()
+            ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-02-15')
+            ->toXml();
+
+        $this->assertStringContainsString('ES9121000418450200051332', $xml);
+        $this->assertStringContainsString('<PaymentMeans>04</PaymentMeans>', $xml);
+    }
+
+    public function test_cash_payment(): void
+    {
+        $xml = InvoiceMother::cashInvoice()->toXml();
+
+        $this->assertStringContainsString('<PaymentMeans>01</PaymentMeans>', $xml);
+    }
+
+    public function test_card_payment(): void
+    {
+        $xml = InvoiceMother::cardInvoice()->toXml();
+
+        $this->assertStringContainsString('<PaymentMeans>19</PaymentMeans>', $xml);
+    }
+
+    public function test_direct_debit_payment(): void
+    {
+        $xml = InvoiceMother::withBillingPeriod()->toXml();
+
+        $this->assertStringContainsString('<PaymentMeans>02</PaymentMeans>', $xml);
+        $this->assertStringContainsString('<IBAN>', $xml);
+    }
+
+    public function test_split_payments(): void
+    {
+        $xml = InvoiceMother::withSplitPayments()->toXml();
+
+        // 6000 + 7% IGIC = 6420, 3 plazos = 2140.00 cada uno
+        $this->assertStringContainsString('<InstallmentAmount>2140.00</InstallmentAmount>', $xml);
+        $this->assertSame(3, substr_count($xml, '<Installment>'));
+    }
+
+    // ─── Dates & periods ─────────────────────────────────
+
+    public function test_operation_date(): void
+    {
+        $xml = InvoiceMother::withOperationDate()->toXml();
+
+        $this->assertStringContainsString('<OperationDate>2024-12-20</OperationDate>', $xml);
+    }
+
+    public function test_billing_period(): void
+    {
+        $xml = InvoiceMother::withBillingPeriod()->toXml();
+
+        $this->assertStringContainsString('<StartDate>2024-12-01</StartDate>', $xml);
+        $this->assertStringContainsString('<EndDate>2024-12-31</EndDate>', $xml);
+    }
+
+    // ─── Invoice types ───────────────────────────────────
+
+    public function test_corrective(): void
+    {
+        $xml = InvoiceMother::corrective()->toXml();
+
+        $this->assertStringContainsString('FAC-000', $xml);
+        $this->assertStringContainsString('<InvoiceDocumentType>FC</InvoiceDocumentType>', $xml);
+        $this->assertStringContainsString('<InvoiceClass>OR</InvoiceClass>', $xml);
+        $this->assertStringContainsString('<ReasonCode>16</ReasonCode>', $xml);
+        $this->assertStringContainsString('Base imponible', $xml);
+        $this->assertStringContainsString('<StartDate>2024-01-01</StartDate>', $xml);
+        $this->assertStringContainsString('<CorrectionMethod>01</CorrectionMethod>', $xml);
+    }
+
+    // ─── Exempt lines ────────────────────────────────────
+
+    public function test_exempt_line(): void
+    {
+        $xml = InvoiceMother::withExemptLine()->toXml();
+
+        $this->assertStringContainsString('Formacion bonificada FUNDAE', $xml);
+        // 800 * 21% = 168 IVA (only on consultoria), exempt line has no tax
+        $this->assertStringContainsString('<TotalTaxOutputs>168.00</TotalTaxOutputs>', $xml);
+        // 800 + 168 + 2000 = 2968
+        $this->assertStringContainsString('<InvoiceTotal>2968.00</InvoiceTotal>', $xml);
+    }
+
+    // ─── Misc ────────────────────────────────────────────
+
+    public function test_corporate_name(): void
+    {
+        $xml = InvoiceMother::simple()->toXml();
+
+        $this->assertStringContainsString('<CorporateName>Empresa Test S.L.</CorporateName>', $xml);
+    }
+
+    public function test_legal_literal(): void
+    {
+        $xml = InvoiceMother::simple()
+            ->legalLiteral('Exenta art. 20 LIVA')
+            ->toXml();
+
+        $this->assertStringContainsString('Exenta art. 20 LIVA', $xml);
+    }
+
+    // ─── Validation ──────────────────────────────────────
+
     public function test_fails_without_seller(): void
     {
         $this->expectException(InvoiceValidationException::class);
+
         Invoice::create('FAC-001')
             ->buyer(Party::person('00000000A', 'J', 'G')->address('C/', '28001', 'Madrid', 'Madrid'))
             ->line('Test', price: 100, vat: 21)
@@ -78,62 +196,24 @@ final class InvoiceTest extends TestCase
     public function test_fails_without_lines(): void
     {
         $this->expectException(InvoiceValidationException::class);
+
         Invoice::create('FAC-001')
             ->seller(Party::company('A00000000', 'T')->address('C/', '28001', 'Madrid', 'Madrid'))
             ->buyer(Party::person('00000000A', 'J', 'G')->address('C/', '28001', 'Madrid', 'Madrid'))
             ->toXml();
     }
 
-    public function test_corrective(): void
+    // ─── Full featured ───────────────────────────────────
+
+    public function test_full_featured_generates_valid_xml(): void
     {
-        $xml = $this->validInvoice()
-            ->corrects('FAC-000', 'Error en importe', CorrectionMethod::FullReplacement)
-            ->toXml();
-        $this->assertStringContainsString('FAC-000', $xml);
-        $this->assertStringContainsString('FR', $xml);
+        $dom = new \DOMDocument();
+        $this->assertTrue($dom->loadXML(InvoiceMother::fullFeatured()->toXml()));
     }
 
-    public function test_transfer_payment(): void
+    public function test_full_featured_peninsular_generates_valid_xml(): void
     {
-        $xml = $this->validInvoice()
-            ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-02-15')
-            ->toXml();
-        $this->assertStringContainsString('ES9121000418450200051332', $xml);
-        $this->assertStringContainsString('<PaymentMeans>04</PaymentMeans>', $xml);
-    }
-
-    public function test_discount(): void
-    {
-        $xml = Invoice::create('FAC-003')->date('2024-01-01')
-            ->seller(Party::company('A00000000', 'T S.L.')->address('C/ T', '28001', 'Madrid', 'Madrid'))
-            ->buyer(Party::person('00000000A', 'T', 'U')->address('C/ T', '28002', 'Madrid', 'Madrid'))
-            ->line('Producto', price: 100, quantity: 1, vat: 21, discount: 10)
-            ->toXml();
-        $this->assertStringContainsString('<GrossAmount>90.00</GrossAmount>', $xml);
-    }
-
-    public function test_corporate_name(): void
-    {
-        $xml = $this->validInvoice()->toXml();
-        $this->assertStringContainsString('<CorporateName>Empresa Test S.L.</CorporateName>', $xml);
-    }
-
-    public function test_legal_literal(): void
-    {
-        $xml = $this->validInvoice()
-            ->legalLiteral('Exenta art. 20 LIVA')
-            ->toXml();
-        $this->assertStringContainsString('Exenta art. 20 LIVA', $xml);
-    }
-
-    public function test_igic(): void
-    {
-        $xml = Invoice::create('FAC-004')->date('2024-01-01')
-            ->seller(Party::company('B76000000', 'Canaria S.L.')->address('C/ T', '35001', 'Las Palmas', 'Las Palmas'))
-            ->buyer(Party::person('00000000A', 'T', 'U')->address('C/ T', '35002', 'Las Palmas', 'Las Palmas'))
-            ->line('Servicio', price: 1000, igic: 7)
-            ->toXml();
-        $this->assertStringContainsString('<TotalTaxOutputs>70.00</TotalTaxOutputs>', $xml);
-        $this->assertStringContainsString('<InvoiceTotal>1070.00</InvoiceTotal>', $xml);
+        $dom = new \DOMDocument();
+        $this->assertTrue($dom->loadXML(InvoiceMother::fullFeaturedPeninsular()->toXml()));
     }
 }

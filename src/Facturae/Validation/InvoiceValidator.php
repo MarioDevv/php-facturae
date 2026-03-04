@@ -26,22 +26,23 @@ final class InvoiceValidator
         }
 
         if (empty($invoice->getLines())) {
-            $errors[] = 'At least one line item is required.';
+            $errors[] = 'At least one invoice line is required.';
         }
 
         if ($invoice->getNumber() === '') {
             $errors[] = 'Invoice number is required.';
         }
 
-        $isCorrective = in_array($invoice->getType()->value, ['FR', 'FS'], true);
+        if ($invoice->getBillingPeriodStart() !== null xor $invoice->getBillingPeriodEnd() !== null) {
+            $errors[] = 'Billing period requires both start and end dates.';
+        }
 
-        if ($isCorrective) {
-            if ($invoice->getCorrectedNumber() === null) {
-                $errors[] = 'Corrective invoices must reference the corrected invoice number.';
-            }
-            if ($invoice->getCorrectionMethod() === null) {
-                $errors[] = 'Corrective invoices must specify a correction method.';
-            }
+        if (
+            $invoice->getBillingPeriodStart() !== null
+            && $invoice->getBillingPeriodEnd() !== null
+            && $invoice->getBillingPeriodStart() > $invoice->getBillingPeriodEnd()
+        ) {
+            $errors[] = 'Billing period start date must be before end date.';
         }
 
         return $errors;

@@ -6,8 +6,15 @@ namespace MarioDevv\Rex\Facturae\Enums;
 
 enum CorrectionMethod: string
 {
-    case FullReplacement       = '01';
-    case DifferencesOnly       = '02';
-    case BulkDiscount          = '03';
-    case AuthorizedByTaxAgency = '04';
+    /** Rectificacion integra */
+    case FullReplacement = '01';
+
+    /** Rectificacion por diferencias */
+    case Differences = '02';
+
+    /** Descuento por volumen de operaciones durante un periodo */
+    case VolumeDiscount = '03';
+
+    /** Autorizadas por la Agencia Tributaria */
+    case TaxAuthorityAuthorized = '04';
 }

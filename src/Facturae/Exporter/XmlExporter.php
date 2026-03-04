@@ -14,13 +14,13 @@ use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
 final class XmlExporter
 {
     private DOMDocument $dom;
-    private string      $ns;
+    private string $ns;
 
     public function export(Invoice $invoice): string
     {
-        $this->dom               = new DOMDocument('1.0', 'UTF-8');
+        $this->dom = new DOMDocument('1.0', 'UTF-8');
         $this->dom->formatOutput = true;
-        $this->ns                = $invoice->getSchema()->xmlNamespace();
+        $this->ns = $invoice->getSchema()->xmlNamespace();
 
         $root = $this->dom->createElementNS($this->ns, 'fe:Facturae');
         $root->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:ds', 'http://www.w3.org/2000/09/xmldsig#');
@@ -33,6 +33,7 @@ final class XmlExporter
         return $this->dom->saveXML();
     }
 
+    // ─── File Header ─────────────────────────────────────
 
     private function appendFileHeader(DOMElement $root, Invoice $invoice): void
     {
@@ -68,6 +69,8 @@ final class XmlExporter
 
         $batch->appendChild($this->el('InvoiceCurrencyCode', $invoice->getCurrency()));
     }
+
+    // ─── Parties ─────────────────────────────────────────
 
     private function appendParties(DOMElement $root, Invoice $invoice): void
     {
@@ -190,6 +193,7 @@ final class XmlExporter
         $this->maybe($c, 'INETownCode', $party->getIneTownCode());
     }
 
+    // ─── Invoice body ────────────────────────────────────
 
     private function appendInvoice(DOMElement $root, Invoice $invoice): void
     {
@@ -219,19 +223,32 @@ final class XmlExporter
         }
 
         $header->appendChild($this->el('InvoiceDocumentType', $invoice->getType()->value));
+        $header->appendChild($this->el('InvoiceClass', $invoice->isCorrective() ? 'OR' : 'OO'));
 
-        $isCorrective = in_array($invoice->getType()->value, ['FR', 'FS'], true);
-        $header->appendChild($this->el('InvoiceClass', $isCorrective ? 'OR' : 'OO'));
-
-        if ($invoice->getCorrectedNumber() !== null) {
+        if ($invoice->isCorrective() && $invoice->getCorrectedNumber() !== null) {
             $c = $this->el('Corrective');
             $header->appendChild($c);
             $c->appendChild($this->el('InvoiceNumber', $invoice->getCorrectedNumber()));
-            $this->maybe($c, 'InvoiceSeriesCode', $invoice->getCorrectedSerie());
-            $c->appendChild($this->el('ReasonCode', '01'));
-            $c->appendChild($this->el('ReasonDescription', $invoice->getCorrectionDescription() ?? ''));
+            $this->maybe($c, 'InvoiceSeriesCode', $invoice->getCorrectedSeries());
+
+            $reason = $invoice->getCorrectionReason();
+            $c->appendChild($this->el('ReasonCode', $reason->value));
+            $c->appendChild($this->el('ReasonDescription', $reason->description()));
+
+            // TaxPeriod is required before CorrectionMethod
+            $period = $this->el('TaxPeriod');
+            $c->appendChild($period);
+            $periodStart = $invoice->getCorrectionPeriodStart() ?? $invoice->getIssueDate();
+            $periodEnd = $invoice->getCorrectionPeriodEnd() ?? $invoice->getIssueDate();
+            $period->appendChild($this->el('StartDate', $periodStart->format('Y-m-d')));
+            $period->appendChild($this->el('EndDate', $periodEnd->format('Y-m-d')));
+
             $c->appendChild($this->el('CorrectionMethod', $invoice->getCorrectionMethod()->value));
-            $c->appendChild($this->el('CorrectionMethodDescription', 'Correction'));
+            $c->appendChild($this->el('CorrectionMethodDescription',
+                $invoice->getCorrectionMethod() === \MarioDevv\Rex\Facturae\Enums\CorrectionMethod::FullReplacement
+                    ? 'Rectificación íntegra'
+                    : 'Rectificación por diferencias',
+            ));
         }
     }
 
@@ -240,6 +257,18 @@ final class XmlExporter
         $d = $this->el('InvoiceIssueData');
         $inv->appendChild($d);
         $d->appendChild($this->el('IssueDate', $invoice->getIssueDate()->format('Y-m-d')));
+
+        if ($invoice->getOperationDate() !== null) {
+            $d->appendChild($this->el('OperationDate', $invoice->getOperationDate()->format('Y-m-d')));
+        }
+
+        if ($invoice->getBillingPeriodStart() !== null && $invoice->getBillingPeriodEnd() !== null) {
+            $period = $this->el('InvoicingPeriod');
+            $d->appendChild($period);
+            $period->appendChild($this->el('StartDate', $invoice->getBillingPeriodStart()->format('Y-m-d')));
+            $period->appendChild($this->el('EndDate', $invoice->getBillingPeriodEnd()->format('Y-m-d')));
+        }
+
         $d->appendChild($this->el('InvoiceCurrencyCode', $invoice->getCurrency()));
         $d->appendChild($this->el('TaxCurrencyCode', $invoice->getCurrency()));
         $d->appendChild($this->el('LanguageName', 'es'));
@@ -266,7 +295,7 @@ final class XmlExporter
         }
     }
 
-    /** @param array{type: string, rate: float, base: float, amount: float} $data */
+    /** @param array{type: string, rate: float, base: float, amount: float, surchargeRate: ?float, surchargeAmount: float} $data */
     private function appendTaxNode(DOMElement $parent, array $data): void
     {
         $tax = $this->el('Tax');
@@ -281,6 +310,14 @@ final class XmlExporter
         $amount = $this->el('TaxAmount');
         $tax->appendChild($amount);
         $amount->appendChild($this->el('TotalAmount', $this->money($data['amount'])));
+
+        if ($data['surchargeRate'] !== null && $data['surchargeRate'] > 0) {
+            $tax->appendChild($this->el('EquivalenceSurcharge', $this->money($data['surchargeRate'])));
+
+            $sa = $this->el('EquivalenceSurchargeAmount');
+            $tax->appendChild($sa);
+            $sa->appendChild($this->el('TotalAmount', $this->money($data['surchargeAmount'])));
+        }
     }
 
     private function appendTotals(DOMElement $inv, Invoice $invoice): void
@@ -288,14 +325,15 @@ final class XmlExporter
         $totals = $this->el('InvoiceTotals');
         $inv->appendChild($totals);
 
-        $gross   = $this->grossAmount($invoice);
-        $taxOut  = $this->taxAmount($invoice->getLines(), false);
-        $taxWith = $this->taxAmount($invoice->getLines(), true);
-        $total   = $gross + $taxOut - $taxWith;
+        $gross         = $this->grossAmount($invoice);
+        $taxOut        = $this->taxAmount($invoice->getLines(), false);
+        $surchargeOut  = $this->surchargeAmount($invoice->getLines());
+        $taxWith       = $this->taxAmount($invoice->getLines(), true);
+        $total         = $gross + $taxOut + $surchargeOut - $taxWith;
 
         $totals->appendChild($this->el('TotalGrossAmount', $this->money($gross)));
         $totals->appendChild($this->el('TotalGrossAmountBeforeTaxes', $this->money($gross)));
-        $totals->appendChild($this->el('TotalTaxOutputs', $this->money($taxOut)));
+        $totals->appendChild($this->el('TotalTaxOutputs', $this->money($taxOut + $surchargeOut)));
         $totals->appendChild($this->el('TotalTaxesWithheld', $this->money($taxWith)));
         $totals->appendChild($this->el('InvoiceTotal', $this->money($total)));
         $totals->appendChild($this->el('TotalOutstandingAmount', $this->money($total)));
@@ -313,7 +351,7 @@ final class XmlExporter
 
             $this->maybe($item, 'ArticleCode', $line->articleCode);
             $item->appendChild($this->el('ItemDescription', $line->description));
-            $item->appendChild($this->el('Quantity', (string)$line->quantity));
+            $item->appendChild($this->el('Quantity', (string) $line->quantity));
             $item->appendChild($this->el('UnitPriceWithoutTax', $this->money($line->unitPrice)));
             $item->appendChild($this->el('TotalCost', $this->money($line->quantity * $line->unitPrice)));
 
@@ -332,21 +370,37 @@ final class XmlExporter
             $item->appendChild($this->el('GrossAmount', $this->money($line->grossAmount())));
 
             $outputTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => !$t->isWithholding);
-            if (!empty($outputTaxes)) {
-                $el = $this->el('TaxesOutputs');
-                $item->appendChild($el);
-                foreach ($outputTaxes as $tax) {
-                    $this->appendLineTax($el, $tax, $line->grossAmount());
-                }
-            }
-
             $withheldTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => $t->isWithholding);
+
+            // XSD sequence: TaxesWithheld BEFORE TaxesOutputs
             if (!empty($withheldTaxes)) {
                 $el = $this->el('TaxesWithheld');
                 $item->appendChild($el);
                 foreach ($withheldTaxes as $tax) {
                     $this->appendLineTax($el, $tax, $line->grossAmount());
                 }
+            }
+
+            if (!empty($outputTaxes)) {
+                $el = $this->el('TaxesOutputs');
+                $item->appendChild($el);
+                foreach ($outputTaxes as $tax) {
+                    $this->appendLineTax($el, $tax, $line->grossAmount());
+                }
+            } elseif (empty($withheldTaxes)) {
+                // Exempt line: XSD requires TaxesOutputs even at 0%
+                $el = $this->el('TaxesOutputs');
+                $item->appendChild($el);
+                $zeroTax = $this->el('Tax');
+                $el->appendChild($zeroTax);
+                $zeroTax->appendChild($this->el('TaxTypeCode', '01'));
+                $zeroTax->appendChild($this->el('TaxRate', '0.00'));
+                $tb = $this->el('TaxableBase');
+                $zeroTax->appendChild($tb);
+                $tb->appendChild($this->el('TotalAmount', $this->money($line->grossAmount())));
+                $ta = $this->el('TaxAmount');
+                $zeroTax->appendChild($ta);
+                $ta->appendChild($this->el('TotalAmount', '0.00'));
             }
         }
     }
@@ -365,6 +419,14 @@ final class XmlExporter
         $taxAmount = $this->el('TaxAmount');
         $el->appendChild($taxAmount);
         $taxAmount->appendChild($this->el('TotalAmount', $this->money(round($base * $tax->rate / 100, 2))));
+
+        if ($tax->surchargeRate !== null && $tax->surchargeRate > 0) {
+            $el->appendChild($this->el('EquivalenceSurcharge', $this->money($tax->surchargeRate)));
+
+            $sa = $this->el('EquivalenceSurchargeAmount');
+            $el->appendChild($sa);
+            $sa->appendChild($this->el('TotalAmount', $this->money(round($base * $tax->surchargeRate / 100, 2))));
+        }
     }
 
     private function appendPayments(DOMElement $inv, Invoice $invoice): void
@@ -388,8 +450,22 @@ final class XmlExporter
                 );
             }
 
+            // Calculo del importe del plazo
+            if ($payment->amount !== null) {
+                $installmentAmount = $payment->amount;
+            } elseif ($payment->isSplitPayment()) {
+                $installmentAmount = round($total / $payment->totalInstallments, 2);
+                // Ajuste del ultimo plazo para cuadrar centimos
+                if ($payment->installmentIndex === $payment->totalInstallments - 1) {
+                    $previousSum = round($total / $payment->totalInstallments, 2) * ($payment->totalInstallments - 1);
+                    $installmentAmount = round($total - $previousSum, 2);
+                }
+            } else {
+                $installmentAmount = $total;
+            }
+
             $inst->appendChild(
-                $this->el('InstallmentAmount', $this->money($payment->amount ?? $total))
+                $this->el('InstallmentAmount', $this->money($installmentAmount))
             );
             $inst->appendChild(
                 $this->el('PaymentMeans', $payment->method->value)
@@ -417,10 +493,11 @@ final class XmlExporter
         );
     }
 
+    // ─── Calculation helpers ─────────────────────────────
 
     /**
      * @param Line[] $lines
-     * @return array<string, array{type: string, rate: float, base: float, amount: float}>
+     * @return array<string, array{type: string, rate: float, base: float, amount: float, surchargeRate: ?float, surchargeAmount: float}>
      */
     private function groupTaxes(array $lines, bool $withheld): array
     {
@@ -436,15 +513,22 @@ final class XmlExporter
 
                 if (!isset($grouped[$key])) {
                     $grouped[$key] = [
-                        'type'   => $tax->type->value,
-                        'rate'   => $tax->rate,
-                        'base'   => 0.0,
-                        'amount' => 0.0,
+                        'type'             => $tax->type->value,
+                        'rate'             => $tax->rate,
+                        'base'             => 0.0,
+                        'amount'           => 0.0,
+                        'surchargeRate'    => $tax->surchargeRate,
+                        'surchargeAmount'  => 0.0,
                     ];
                 }
 
-                $grouped[$key]['base']   += $line->grossAmount();
-                $grouped[$key]['amount'] += round($line->grossAmount() * $tax->rate / 100, 2);
+                $base = $line->grossAmount();
+                $grouped[$key]['base']   += $base;
+                $grouped[$key]['amount'] += round($base * $tax->rate / 100, 2);
+
+                if ($tax->surchargeRate !== null && $tax->surchargeRate > 0) {
+                    $grouped[$key]['surchargeAmount'] += round($base * $tax->surchargeRate / 100, 2);
+                }
             }
         }
 
@@ -476,15 +560,33 @@ final class XmlExporter
         return $total;
     }
 
+    /** @param Line[] $lines */
+    private function surchargeAmount(array $lines): float
+    {
+        $total = 0.0;
+
+        foreach ($lines as $line) {
+            foreach ($line->taxes as $tax) {
+                if (!$tax->isWithholding && $tax->surchargeRate !== null && $tax->surchargeRate > 0) {
+                    $total += round($line->grossAmount() * $tax->surchargeRate / 100, 2);
+                }
+            }
+        }
+
+        return $total;
+    }
+
     private function calculateTotal(Invoice $invoice): float
     {
         $gross = $this->grossAmount($invoice);
 
         return $gross
             + $this->taxAmount($invoice->getLines(), false)
+            + $this->surchargeAmount($invoice->getLines())
             - $this->taxAmount($invoice->getLines(), true);
     }
 
+    // ─── DOM helpers ─────────────────────────────────────
 
     private function el(string $name, ?string $value = null): DOMElement
     {

@@ -6,11 +6,14 @@ namespace MarioDevv\Rex\Facturae\Entities;
 
 use MarioDevv\Rex\Facturae\Enums\Tax;
 
-final readonly class TaxBreakdown
+final class TaxBreakdown
 {
     public function __construct(
-        public Tax   $type,
-        public float $rate,
-        public bool  $isWithholding = false,
-    ) {}
+        public readonly Tax    $type,
+        public readonly float  $rate,
+        public readonly bool   $isWithholding = false,
+        public readonly ?float $surchargeRate = null,
+    )
+    {
+    }
 }

@@ -7,13 +7,22 @@ namespace MarioDevv\Rex\Facturae\Entities;
 use DateTimeImmutable;
 use MarioDevv\Rex\Facturae\Enums\PaymentMethod;
 
-final readonly class Payment
+final class Payment
 {
     public function __construct(
-        public PaymentMethod      $method,
-        public ?DateTimeImmutable  $dueDate = null,
-        public ?float              $amount = null,
-        public ?string             $iban = null,
-        public ?string             $bic = null,
-    ) {}
+        public readonly PaymentMethod      $method,
+        public readonly ?DateTimeImmutable $dueDate = null,
+        public readonly ?float             $amount = null,
+        public readonly ?string            $iban = null,
+        public readonly ?string            $bic = null,
+        public readonly ?int               $installmentIndex = null,
+        public readonly ?int               $totalInstallments = null,
+    )
+    {
+    }
+
+    public function isSplitPayment(): bool
+    {
+        return $this->totalInstallments !== null && $this->totalInstallments > 1;
+    }
 }

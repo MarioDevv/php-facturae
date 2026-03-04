@@ -6,8 +6,12 @@ namespace MarioDevv\Rex\Facturae\Enums;
 
 enum InvoiceType: string
 {
-    case Full                = 'FC';
-    case Simplified          = 'FA';
-    case CorrectedFull       = 'FR';
-    case CorrectedSimplified = 'FS';
+    /** Factura completa */
+    case Full = 'FC';
+
+    /** Factura simplificada (ticket) */
+    case Simplified = 'FA';
+
+    /** Factura simplificada rectificada y canje */
+    case SimplifiedRectified = 'AF';
 }
