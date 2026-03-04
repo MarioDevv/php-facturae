@@ -30,12 +30,14 @@
   },
   "autoload": {
     "psr-4": {
-      "MarioDevv\\Rex\\Facturae\\": "src/Facturae/"
+      "MarioDevv\\Rex\\Facturae\\": "src/Facturae/",
+      "MarioDevv\\Rex\\Verifactu\\": "src/Verifactu/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "MarioDevv\\Rex\\Tests\\Facturae\\": "tests/Facturae/"
+      "MarioDevv\\Rex\\Tests\\Facturae\\": "tests/Facturae/",
+      "MarioDevv\\Rex\\Tests\\Verifactu\\": "tests/Verifactu/"
     }
   },
   "scripts": {

@@ -12,8 +12,12 @@
          failOnRisky="true"
          failOnWarning="true">
     <testsuites>
-        <testsuite name="default">
-            <directory>tests</directory>
+        <testsuite name="Facturae">
+            <directory>tests/Facturae</directory>
+        </testsuite>
+
+        <testsuite name="Verifactu">
+            <directory>tests/Verifactu</directory>
         </testsuite>
     </testsuites>
 
