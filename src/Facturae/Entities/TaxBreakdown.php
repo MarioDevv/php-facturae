@@ -11,9 +11,9 @@ final class TaxBreakdown
     public readonly bool $isWithholding;
 
     /**
-     * @param Tax $type Tipo de impuesto
-     * @param float $rate Porcentaje del impuesto
-     * @param bool|null $isWithholding null = usar defecto del tipo (IRPF/IRNR = retenido, resto = repercutido)
+     * @param Tax        $type          Tipo de impuesto
+     * @param float      $rate          Porcentaje del impuesto
+     * @param bool|null  $isWithholding null = usar defecto del tipo (IRPF/IRNR = retenido, resto = repercutido)
      * @param float|null $surchargeRate Porcentaje de recargo de equivalencia (solo IVA)
      */
     public function __construct(
@@ -21,8 +21,7 @@ final class TaxBreakdown
         public readonly float  $rate,
         ?bool                  $isWithholding = null,
         public readonly ?float $surchargeRate = null,
-    )
-    {
+    ) {
         $this->isWithholding = $isWithholding ?? $type->isWithheldByDefault();
     }
 }

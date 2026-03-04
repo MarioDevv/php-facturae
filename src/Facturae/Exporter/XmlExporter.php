@@ -10,17 +10,18 @@ use MarioDevv\Rex\Facturae\Invoice;
 use MarioDevv\Rex\Facturae\Party;
 use MarioDevv\Rex\Facturae\Entities\Line;
 use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
+use MarioDevv\Rex\Facturae\Entities\Attachment;
 
 final class XmlExporter
 {
     private DOMDocument $dom;
-    private string $ns;
+    private string      $ns;
 
     public function export(Invoice $invoice): string
     {
-        $this->dom = new DOMDocument('1.0', 'UTF-8');
+        $this->dom               = new DOMDocument('1.0', 'UTF-8');
         $this->dom->formatOutput = true;
-        $this->ns = $invoice->getSchema()->xmlNamespace();
+        $this->ns                = $invoice->getSchema()->xmlNamespace();
 
         $root = $this->dom->createElementNS($this->ns, 'fe:Facturae');
         $root->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:ds', 'http://www.w3.org/2000/09/xmldsig#');
@@ -239,7 +240,7 @@ final class XmlExporter
             $period = $this->el('TaxPeriod');
             $c->appendChild($period);
             $periodStart = $invoice->getCorrectionPeriodStart() ?? $invoice->getIssueDate();
-            $periodEnd = $invoice->getCorrectionPeriodEnd() ?? $invoice->getIssueDate();
+            $periodEnd   = $invoice->getCorrectionPeriodEnd() ?? $invoice->getIssueDate();
             $period->appendChild($this->el('StartDate', $periodStart->format('Y-m-d')));
             $period->appendChild($this->el('EndDate', $periodEnd->format('Y-m-d')));
 
@@ -325,14 +326,64 @@ final class XmlExporter
         $totals = $this->el('InvoiceTotals');
         $inv->appendChild($totals);
 
-        $gross         = $this->grossAmount($invoice);
-        $taxOut        = $this->taxAmount($invoice->getLines(), false);
-        $surchargeOut  = $this->surchargeAmount($invoice->getLines());
-        $taxWith       = $this->taxAmount($invoice->getLines(), true);
-        $total         = $gross + $taxOut + $surchargeOut - $taxWith;
+        $gross        = $this->grossAmount($invoice);
+        $taxOut       = $this->taxAmount($invoice->getLines(), false);
+        $surchargeOut = $this->surchargeAmount($invoice->getLines());
+        $taxWith      = $this->taxAmount($invoice->getLines(), true);
 
         $totals->appendChild($this->el('TotalGrossAmount', $this->money($gross)));
-        $totals->appendChild($this->el('TotalGrossAmountBeforeTaxes', $this->money($gross)));
+
+        // General Discounts
+        $totalDiscounts = 0.0;
+        if (!empty($invoice->getGeneralDiscounts())) {
+            $discountsEl = $this->el('GeneralDiscounts');
+            $totals->appendChild($discountsEl);
+            foreach ($invoice->getGeneralDiscounts() as $d) {
+                $disc = $this->el('Discount');
+                $discountsEl->appendChild($disc);
+                $disc->appendChild($this->el('DiscountReason', $d['reason']));
+                if (isset($d['rate']) && $d['rate'] !== null) {
+                    $disc->appendChild($this->el('DiscountRate', $this->money($d['rate'])));
+                    $amount = round($gross * $d['rate'] / 100, 2);
+                } else {
+                    $amount = round($d['amount'], 2);
+                }
+                $disc->appendChild($this->el('DiscountAmount', $this->money($amount)));
+                $totalDiscounts += $amount;
+            }
+        }
+
+        // General Surcharges (cargos)
+        $totalCharges = 0.0;
+        if (!empty($invoice->getGeneralCharges())) {
+            $chargesEl = $this->el('GeneralSurcharges');
+            $totals->appendChild($chargesEl);
+            foreach ($invoice->getGeneralCharges() as $c) {
+                $charge = $this->el('Charge');
+                $chargesEl->appendChild($charge);
+                $charge->appendChild($this->el('ChargeReason', $c['reason']));
+                if (isset($c['rate']) && $c['rate'] !== null) {
+                    $charge->appendChild($this->el('ChargeRate', $this->money($c['rate'])));
+                    $amount = round($gross * $c['rate'] / 100, 2);
+                } else {
+                    $amount = round($c['amount'], 2);
+                }
+                $charge->appendChild($this->el('ChargeAmount', $this->money($amount)));
+                $totalCharges += $amount;
+            }
+        }
+
+        if ($totalDiscounts > 0) {
+            $totals->appendChild($this->el('TotalGeneralDiscounts', $this->money($totalDiscounts)));
+        }
+        if ($totalCharges > 0) {
+            $totals->appendChild($this->el('TotalGeneralSurcharges', $this->money($totalCharges)));
+        }
+
+        $grossBeforeTaxes = $gross - $totalDiscounts + $totalCharges;
+        $total            = $grossBeforeTaxes + $taxOut + $surchargeOut - $taxWith;
+
+        $totals->appendChild($this->el('TotalGrossAmountBeforeTaxes', $this->money($grossBeforeTaxes)));
         $totals->appendChild($this->el('TotalTaxOutputs', $this->money($taxOut + $surchargeOut)));
         $totals->appendChild($this->el('TotalTaxesWithheld', $this->money($taxWith)));
         $totals->appendChild($this->el('InvoiceTotal', $this->money($total)));
@@ -350,7 +401,7 @@ final class XmlExporter
             $items->appendChild($item);
 
             $item->appendChild($this->el('ItemDescription', $line->description));
-            $item->appendChild($this->el('Quantity', (string) $line->quantity));
+            $item->appendChild($this->el('Quantity', (string)$line->quantity));
 
             if ($line->unitOfMeasure !== null) {
                 $item->appendChild($this->el('UnitOfMeasure', $line->unitOfMeasure->value));
@@ -373,7 +424,7 @@ final class XmlExporter
 
             $item->appendChild($this->el('GrossAmount', $this->money($line->grossAmount())));
 
-            $outputTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => !$t->isWithholding);
+            $outputTaxes   = array_filter($line->taxes, fn(TaxBreakdown $t) => !$t->isWithholding);
             $withheldTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => $t->isWithholding);
 
             // XSD sequence: TaxesWithheld BEFORE TaxesOutputs
@@ -475,7 +526,7 @@ final class XmlExporter
                 $installmentAmount = round($total / $payment->totalInstallments, 2);
                 // Ajuste del ultimo plazo para cuadrar centimos
                 if ($payment->installmentIndex === $payment->totalInstallments - 1) {
-                    $previousSum = round($total / $payment->totalInstallments, 2) * ($payment->totalInstallments - 1);
+                    $previousSum       = round($total / $payment->totalInstallments, 2) * ($payment->totalInstallments - 1);
                     $installmentAmount = round($total - $previousSum, 2);
                 }
             } else {
@@ -500,15 +551,34 @@ final class XmlExporter
 
     private function appendAdditionalData(DOMElement $inv, Invoice $invoice): void
     {
-        if ($invoice->getLegalLiteral() === null) {
+        if ($invoice->getLegalLiteral() === null && empty($invoice->getAttachments())) {
             return;
         }
 
         $ad = $this->el('AdditionalData');
         $inv->appendChild($ad);
-        $ad->appendChild(
-            $this->el('InvoiceAdditionalInformation', $invoice->getLegalLiteral())
-        );
+
+        if ($invoice->getLegalLiteral() !== null) {
+            $ad->appendChild(
+                $this->el('InvoiceAdditionalInformation', $invoice->getLegalLiteral())
+            );
+        }
+
+        if (!empty($invoice->getAttachments())) {
+            $docs = $this->el('RelatedDocuments');
+            $ad->appendChild($docs);
+
+            foreach ($invoice->getAttachments() as $attachment) {
+                $attached = $this->el('Attachment');
+                $docs->appendChild($attached);
+
+                $attached->appendChild($this->el('AttachmentCompressionAlgorithm', 'NONE'));
+                $attached->appendChild($this->el('AttachmentFormat', $attachment->mimeType));
+                $attached->appendChild($this->el('AttachmentEncoding', 'BASE64'));
+                $attached->appendChild($this->el('AttachmentDescription', $attachment->description));
+                $attached->appendChild($this->el('AttachmentData', $attachment->data));
+            }
+        }
     }
 
     // ─── Calculation helpers ─────────────────────────────
@@ -531,16 +601,16 @@ final class XmlExporter
 
                 if (!isset($grouped[$key])) {
                     $grouped[$key] = [
-                        'type'             => $tax->type->value,
-                        'rate'             => $tax->rate,
-                        'base'             => 0.0,
-                        'amount'           => 0.0,
-                        'surchargeRate'    => $tax->surchargeRate,
-                        'surchargeAmount'  => 0.0,
+                        'type'            => $tax->type->value,
+                        'rate'            => $tax->rate,
+                        'base'            => 0.0,
+                        'amount'          => 0.0,
+                        'surchargeRate'   => $tax->surchargeRate,
+                        'surchargeAmount' => 0.0,
                     ];
                 }
 
-                $base = $line->grossAmount();
+                $base                    = $line->grossAmount();
                 $grouped[$key]['base']   += $base;
                 $grouped[$key]['amount'] += round($base * $tax->rate / 100, 2);
 
@@ -598,7 +668,23 @@ final class XmlExporter
     {
         $gross = $this->grossAmount($invoice);
 
-        return $gross
+        $totalDiscounts = 0.0;
+        foreach ($invoice->getGeneralDiscounts() as $d) {
+            $totalDiscounts += isset($d['rate']) && $d['rate'] !== null
+                ? round($gross * $d['rate'] / 100, 2)
+                : round($d['amount'], 2);
+        }
+
+        $totalCharges = 0.0;
+        foreach ($invoice->getGeneralCharges() as $c) {
+            $totalCharges += isset($c['rate']) && $c['rate'] !== null
+                ? round($gross * $c['rate'] / 100, 2)
+                : round($c['amount'], 2);
+        }
+
+        $grossBeforeTaxes = $gross - $totalDiscounts + $totalCharges;
+
+        return $grossBeforeTaxes
             + $this->taxAmount($invoice->getLines(), false)
             + $this->surchargeAmount($invoice->getLines())
             - $this->taxAmount($invoice->getLines(), true);

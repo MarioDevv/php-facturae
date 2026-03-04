@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use MarioDevv\Rex\Facturae\Entities\Line;
 use MarioDevv\Rex\Facturae\Entities\Payment;
 use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
+use MarioDevv\Rex\Facturae\Entities\Attachment;
 use MarioDevv\Rex\Facturae\Enums\CorrectionMethod;
 use MarioDevv\Rex\Facturae\Enums\CorrectionReason;
 use MarioDevv\Rex\Facturae\Enums\InvoiceType;
@@ -48,6 +49,12 @@ final class Invoice
     private bool               $isCorrective          = false;
     private ?string            $legalLiteral          = null;
     private ?InvoiceSigner     $signer                = null;
+    /** @var array<int, array{reason: string, rate?: float, amount: float}> */
+    private array $generalDiscounts = [];
+    /** @var array<int, array{reason: string, rate?: float, amount: float}> */
+    private array $generalCharges = [];
+    /** @var Attachment[] */
+    private array $attachments = [];
 
     private function __construct(string $number)
     {
@@ -340,6 +347,65 @@ final class Invoice
         return $this;
     }
 
+    // ─── Discounts & Charges (invoice level) ─────────────
+
+    /**
+     * Descuento general sobre el total bruto de la factura.
+     *
+     *     ->generalDiscount('Descuento cliente VIP', amount: 50.00)
+     *     ->generalDiscount('10% pronto pago', rate: 10)
+     */
+    public function generalDiscount(string $reason, ?float $rate = null, ?float $amount = null): self
+    {
+        $this->generalDiscounts[] = [
+            'reason' => $reason,
+            'rate'   => $rate,
+            'amount' => $amount ?? 0.0,
+        ];
+
+        return $this;
+    }
+
+    /**
+     * Cargo general sobre el total bruto de la factura.
+     *
+     *     ->generalCharge('Portes', amount: 15.00)
+     */
+    public function generalCharge(string $reason, ?float $rate = null, ?float $amount = null): self
+    {
+        $this->generalCharges[] = [
+            'reason' => $reason,
+            'rate'   => $rate,
+            'amount' => $amount ?? 0.0,
+        ];
+
+        return $this;
+    }
+
+    // ─── Attachments ─────────────────────────────────────
+
+    /**
+     * Adjuntar un fichero a la factura.
+     *
+     *     ->attach(Attachment::fromFile('/path/to/contract.pdf', 'Contrato firmado'))
+     */
+    public function attach(Attachment $attachment): self
+    {
+        $this->attachments[] = $attachment;
+        return $this;
+    }
+
+    /**
+     * Adjuntar un fichero directamente desde ruta.
+     *
+     *     ->attachFile('/path/to/contract.pdf', 'Contrato firmado')
+     */
+    public function attachFile(string $path, string $description, ?string $mimeType = null): self
+    {
+        $this->attachments[] = Attachment::fromFile($path, $description, $mimeType);
+        return $this;
+    }
+
     public function sign(InvoiceSigner $signer): self
     {
         $this->signer = $signer;
@@ -509,6 +575,24 @@ final class Invoice
     public function getLegalLiteral(): ?string
     {
         return $this->legalLiteral;
+    }
+
+    /** @return array<int, array{reason: string, rate?: float, amount: float}> */
+    public function getGeneralDiscounts(): array
+    {
+        return $this->generalDiscounts;
+    }
+
+    /** @return array<int, array{reason: string, rate?: float, amount: float}> */
+    public function getGeneralCharges(): array
+    {
+        return $this->generalCharges;
+    }
+
+    /** @return Attachment[] */
+    public function getAttachments(): array
+    {
+        return $this->attachments;
     }
 
     public function getSigner(): ?InvoiceSigner
