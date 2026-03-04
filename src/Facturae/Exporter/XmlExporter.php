@@ -23,7 +23,7 @@ final class XmlExporter
         $this->ns                = $invoice->getSchema()->xmlNamespace();
 
         $root = $this->dom->createElementNS($this->ns, 'fe:Facturae');
-        $root->setAttributeNS(/2000 / xmlns / ', 'xmlns:ds', /2000/09/xmldsig#');
+        $root->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:ds', 'http://www.w3.org/2000/09/xmldsig#');
         $this->dom->appendChild($root);
 
         $this->appendFileHeader($root, $invoice);
@@ -68,7 +68,6 @@ final class XmlExporter
 
         $batch->appendChild($this->el('InvoiceCurrencyCode', $invoice->getCurrency()));
     }
-
 
     private function appendParties(DOMElement $root, Invoice $invoice): void
     {
