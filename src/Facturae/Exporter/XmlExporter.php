@@ -349,9 +349,13 @@ final class XmlExporter
             $item = $this->el('InvoiceLine');
             $items->appendChild($item);
 
-            $this->maybe($item, 'ArticleCode', $line->articleCode);
             $item->appendChild($this->el('ItemDescription', $line->description));
             $item->appendChild($this->el('Quantity', (string) $line->quantity));
+
+            if ($line->unitOfMeasure !== null) {
+                $item->appendChild($this->el('UnitOfMeasure', $line->unitOfMeasure->value));
+            }
+
             $item->appendChild($this->el('UnitPriceWithoutTax', $this->money($line->unitPrice)));
             $item->appendChild($this->el('TotalCost', $this->money($line->quantity * $line->unitPrice)));
 
@@ -402,6 +406,20 @@ final class XmlExporter
                 $zeroTax->appendChild($ta);
                 $ta->appendChild($this->el('TotalAmount', '0.00'));
             }
+
+            // XSD sequence after TaxesOutputs: AdditionalLineItemInformation → SpecialTaxableEvent → ArticleCode
+            $this->maybe($item, 'AdditionalLineItemInformation', $line->detailedDescription);
+
+            if ($line->specialTaxableEvent !== null) {
+                $ste = $this->el('SpecialTaxableEvent');
+                $item->appendChild($ste);
+                $ste->appendChild($this->el('SpecialTaxableEventCode', $line->specialTaxableEvent->value));
+                $ste->appendChild(
+                    $this->el('SpecialTaxableEventReason', $line->specialTaxableEventReason ?? '')
+                );
+            }
+
+            $this->maybe($item, 'ArticleCode', $line->articleCode);
         }
     }
 

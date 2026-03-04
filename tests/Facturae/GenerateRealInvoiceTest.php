@@ -24,7 +24,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-canaria-igic.xsig';
         InvoiceMother::canaryIgic()->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -34,7 +33,6 @@ final class GenerateRealInvoiceTest extends TestCase
         InvoiceMother::withIrpf()
             ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-07-01')
             ->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -42,7 +40,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-recargo-equivalencia.xsig';
         InvoiceMother::withSurcharge()->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -50,7 +47,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-pagos-fraccionados.xsig';
         InvoiceMother::withSplitPayments()->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -60,7 +56,6 @@ final class GenerateRealInvoiceTest extends TestCase
         InvoiceMother::corrective()
             ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-03-01')
             ->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -68,7 +63,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-periodo.xsig';
         InvoiceMother::withBillingPeriod()->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -76,7 +70,27 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-exenta.xsig';
         InvoiceMother::withExemptLine()->export($path);
+        $this->assertValidFacturae($path);
+    }
 
+    public function test_units_invoice(): void
+    {
+        $path = self::$distDir . '/factura-unidades.xsig';
+        InvoiceMother::withUnits()->export($path);
+        $this->assertValidFacturae($path);
+    }
+
+    public function test_special_tax_withheld_invoice(): void
+    {
+        $path = self::$distDir . '/factura-ie-retenido.xsig';
+        InvoiceMother::withSpecialTaxWithheld()->export($path);
+        $this->assertValidFacturae($path);
+    }
+
+    public function test_custom_taxes_invoice(): void
+    {
+        $path = self::$distDir . '/factura-impuestos-custom.xsig';
+        InvoiceMother::withCustomTaxes()->export($path);
         $this->assertValidFacturae($path);
     }
 
@@ -84,7 +98,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-completa-canaria.xsig';
         InvoiceMother::fullFeatured()->export($path);
-
         $this->assertValidFacturae($path);
     }
 
@@ -92,7 +105,6 @@ final class GenerateRealInvoiceTest extends TestCase
     {
         $path = self::$distDir . '/factura-completa-peninsular.xsig';
         InvoiceMother::fullFeaturedPeninsular()->export($path);
-
         $this->assertValidFacturae($path);
     }
 

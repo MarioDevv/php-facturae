@@ -71,7 +71,6 @@ final class InvoiceTest extends TestCase
         $xml = InvoiceMother::withSurcharge()->toXml();
 
         $this->assertStringContainsString('<EquivalenceSurcharge>5.20</EquivalenceSurcharge>', $xml);
-        // Base: 450 + 85 = 535, IVA 21% = 112.35, Surcharge 5.2% = 27.82 => Total = 675.17
         $this->assertStringContainsString('<InvoiceTotal>675.17</InvoiceTotal>', $xml);
     }
 
@@ -113,7 +112,6 @@ final class InvoiceTest extends TestCase
     {
         $xml = InvoiceMother::withSplitPayments()->toXml();
 
-        // 6000 + 7% IGIC = 6420, 3 plazos = 2140.00 cada uno
         $this->assertStringContainsString('<InstallmentAmount>2140.00</InstallmentAmount>', $xml);
         $this->assertSame(3, substr_count($xml, '<Installment>'));
     }
@@ -150,17 +148,50 @@ final class InvoiceTest extends TestCase
         $this->assertStringContainsString('<CorrectionMethod>01</CorrectionMethod>', $xml);
     }
 
-    // ─── Exempt lines ────────────────────────────────────
+    // ─── Exempt lines & SpecialTaxableEvent ──────────────
 
     public function test_exempt_line(): void
     {
         $xml = InvoiceMother::withExemptLine()->toXml();
 
         $this->assertStringContainsString('Formacion bonificada FUNDAE', $xml);
-        // 800 * 21% = 168 IVA (only on consultoria), exempt line has no tax
         $this->assertStringContainsString('<TotalTaxOutputs>168.00</TotalTaxOutputs>', $xml);
-        // 800 + 168 + 2000 = 2968
         $this->assertStringContainsString('<InvoiceTotal>2968.00</InvoiceTotal>', $xml);
+        $this->assertStringContainsString('<SpecialTaxableEventCode>02</SpecialTaxableEventCode>', $xml);
+        $this->assertStringContainsString('art. 20.Uno.9 LIVA', $xml);
+    }
+
+    public function test_custom_taxes_with_special_taxable_event(): void
+    {
+        $xml = InvoiceMother::withCustomTaxes()->toXml();
+
+        $this->assertStringContainsString('<TaxTypeCode>18</TaxTypeCode>', $xml); // REIGIC
+        $this->assertStringContainsString('<SpecialTaxableEventCode>02</SpecialTaxableEventCode>', $xml);
+        $this->assertStringContainsString('art. 20 LIVA', $xml);
+    }
+
+    // ─── Unit of Measure ─────────────────────────────────
+
+    public function test_unit_of_measure(): void
+    {
+        $xml = InvoiceMother::withUnits()->toXml();
+
+        $this->assertStringContainsString('<UnitOfMeasure>02</UnitOfMeasure>', $xml); // Hours
+        $this->assertStringContainsString('<UnitOfMeasure>36</UnitOfMeasure>', $xml); // KWh
+        $this->assertStringContainsString('<UnitOfMeasure>06</UnitOfMeasure>', $xml); // Boxes
+    }
+
+    // ─── isWithheld override ─────────────────────────────
+
+    public function test_special_tax_withheld(): void
+    {
+        $xml = InvoiceMother::withSpecialTaxWithheld()->toXml();
+
+        // IE (07) should appear in TaxesWithheld, not TaxesOutputs
+        $this->assertStringContainsString('<TaxesWithheld>', $xml);
+        $this->assertStringContainsString('<TaxTypeCode>07</TaxTypeCode>', $xml); // IE
+        // IVA 21% on 500 = 105, IE 4% withheld on 500 = 20 => Total = 500 + 105 - 20 = 585
+        $this->assertStringContainsString('<InvoiceTotal>585.00</InvoiceTotal>', $xml);
     }
 
     // ─── Misc ────────────────────────────────────────────

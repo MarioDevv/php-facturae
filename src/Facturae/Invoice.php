@@ -13,7 +13,9 @@ use MarioDevv\Rex\Facturae\Enums\CorrectionReason;
 use MarioDevv\Rex\Facturae\Enums\InvoiceType;
 use MarioDevv\Rex\Facturae\Enums\PaymentMethod;
 use MarioDevv\Rex\Facturae\Enums\Schema;
+use MarioDevv\Rex\Facturae\Enums\SpecialTaxableEvent;
 use MarioDevv\Rex\Facturae\Enums\Tax;
+use MarioDevv\Rex\Facturae\Enums\UnitOfMeasure;
 use MarioDevv\Rex\Facturae\Exceptions\InvoiceValidationException;
 use MarioDevv\Rex\Facturae\Exporter\XmlExporter;
 use MarioDevv\Rex\Facturae\Signer\InvoiceSigner;
@@ -72,20 +74,12 @@ final class Invoice
         return $this;
     }
 
-    /**
-     * Fecha de operacion (devengo) — cuando difiere de la fecha de emision.
-     */
     public function operationDate(string|DateTimeImmutable $date): self
     {
         $this->operationDate = is_string($date) ? new DateTimeImmutable($date) : $date;
         return $this;
     }
 
-    /**
-     * Periodo de facturacion para servicios periodicos.
-     *
-     *     ->billingPeriod(from: '2024-12-01', to: '2024-12-31')
-     */
     public function billingPeriod(
         string|DateTimeImmutable $from,
         string|DateTimeImmutable $to,
@@ -137,22 +131,27 @@ final class Invoice
     /**
      * Linea con atajos fiscales espanoles.
      *
-     *     ->line('Lampara de pie', quantity: 3, price: 20.14, vat: 21)
+     *     ->line('Lampara', quantity: 3, price: 20.14, vat: 21)
      *     ->line('Consultoria', price: 500, vat: 21, irpf: 15)
      *     ->line('Producto Canarias', price: 100, igic: 7)
      *     ->line('Joyeria', price: 200, vat: 21, surcharge: 5.2)
+     *     ->line('Electricidad', price: 80, vat: 21, unit: UnitOfMeasure::KWh)
+     *     ->line('Impuesto especial retenido', price: 10, vat: 21, ie: 4, ieWithheld: true)
      */
     public function line(
-        string  $description,
-        float   $price,
-        float   $quantity = 1,
-        ?float  $vat = null,
-        ?float  $irpf = null,
-        ?float  $igic = null,
-        ?float  $surcharge = null,
-        ?float  $discount = null,
-        ?string $articleCode = null,
-        ?string $detailedDescription = null,
+        string         $description,
+        float          $price,
+        float          $quantity = 1,
+        ?float         $vat = null,
+        ?float         $irpf = null,
+        ?float         $igic = null,
+        ?float         $surcharge = null,
+        ?float         $ie = null,
+        bool           $ieWithheld = false,
+        ?float         $discount = null,
+        ?string        $articleCode = null,
+        ?string        $detailedDescription = null,
+        ?UnitOfMeasure $unit = null,
     ): self
     {
         $taxes = [];
@@ -161,10 +160,13 @@ final class Invoice
             $taxes[] = new TaxBreakdown(Tax::IVA, $vat, surchargeRate: $surcharge);
         }
         if ($irpf !== null) {
-            $taxes[] = new TaxBreakdown(Tax::IRPF, $irpf, isWithholding: true);
+            $taxes[] = new TaxBreakdown(Tax::IRPF, $irpf);
         }
         if ($igic !== null) {
             $taxes[] = new TaxBreakdown(Tax::IGIC, $igic);
+        }
+        if ($ie !== null) {
+            $taxes[] = new TaxBreakdown(Tax::IE, $ie, isWithholding: $ieWithheld);
         }
 
         $this->lines[] = new Line(
@@ -175,31 +177,37 @@ final class Invoice
             articleCode        : $articleCode,
             discount           : $discount,
             detailedDescription: $detailedDescription,
+            unitOfMeasure      : $unit,
         );
 
         return $this;
     }
 
     /**
-     * Linea exenta — intencion explicita, sin impuestos.
+     * Linea exenta con motivo fiscal.
      *
-     *     ->exemptLine('Formacion bonificada', price: 2000)
+     *     ->exemptLine('Formacion FUNDAE', price: 2000, reason: 'Exenta art. 20 LIVA')
      */
     public function exemptLine(
-        string  $description,
-        float   $price,
-        float   $quantity = 1,
-        ?float  $discount = null,
-        ?string $articleCode = null,
+        string         $description,
+        float          $price,
+        float          $quantity = 1,
+        ?string        $reason = null,
+        ?float         $discount = null,
+        ?string        $articleCode = null,
+        ?UnitOfMeasure $unit = null,
     ): self
     {
         $this->lines[] = new Line(
-            description: $description,
-            quantity   : $quantity,
-            unitPrice  : $price,
-            taxes      : [],
-            articleCode: $articleCode,
-            discount   : $discount,
+            description              : $description,
+            quantity                 : $quantity,
+            unitPrice                : $price,
+            taxes                    : [],
+            articleCode              : $articleCode,
+            discount                 : $discount,
+            unitOfMeasure            : $unit,
+            specialTaxableEvent      : SpecialTaxableEvent::Exempt,
+            specialTaxableEventReason: $reason,
         );
 
         return $this;
@@ -211,21 +219,27 @@ final class Invoice
      * @param TaxBreakdown[] $taxes
      */
     public function customLine(
-        string  $description,
-        float   $price,
-        array   $taxes,
-        float   $quantity = 1,
-        ?float  $discount = null,
-        ?string $articleCode = null,
+        string               $description,
+        float                $price,
+        array                $taxes,
+        float                $quantity = 1,
+        ?float               $discount = null,
+        ?string              $articleCode = null,
+        ?UnitOfMeasure       $unit = null,
+        ?SpecialTaxableEvent $specialTaxableEvent = null,
+        ?string              $specialTaxableEventReason = null,
     ): self
     {
         $this->lines[] = new Line(
-            description: $description,
-            quantity   : $quantity,
-            unitPrice  : $price,
-            taxes      : $taxes,
-            articleCode: $articleCode,
-            discount   : $discount,
+            description              : $description,
+            quantity                 : $quantity,
+            unitPrice                : $price,
+            taxes                    : $taxes,
+            articleCode              : $articleCode,
+            discount                 : $discount,
+            unitOfMeasure            : $unit,
+            specialTaxableEvent      : $specialTaxableEvent,
+            specialTaxableEventReason: $specialTaxableEventReason,
         );
 
         return $this;
@@ -239,11 +253,6 @@ final class Invoice
         return $this;
     }
 
-    /**
-     * Pago por transferencia bancaria.
-     *
-     *     ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-12-31')
-     */
     public function transferPayment(
         string  $iban,
         ?string $dueDate = null,
@@ -253,32 +262,16 @@ final class Invoice
         return $this->addPayment(PaymentMethod::Transfer, $dueDate, $amount, $iban);
     }
 
-    /**
-     * Pago en efectivo.
-     *
-     *     ->cashPayment()
-     *     ->cashPayment(dueDate: '2024-12-31')
-     */
     public function cashPayment(?string $dueDate = null, ?float $amount = null): self
     {
         return $this->addPayment(PaymentMethod::Cash, $dueDate, $amount);
     }
 
-    /**
-     * Pago con tarjeta.
-     *
-     *     ->cardPayment(dueDate: '2024-12-31')
-     */
     public function cardPayment(?string $dueDate = null, ?float $amount = null): self
     {
         return $this->addPayment(PaymentMethod::Card, $dueDate, $amount);
     }
 
-    /**
-     * Pago por domiciliacion bancaria (recibo).
-     *
-     *     ->directDebitPayment(iban: 'ES91...', dueDate: '2024-12-31')
-     */
     public function directDebitPayment(
         string  $iban,
         ?string $dueDate = null,
@@ -288,17 +281,6 @@ final class Invoice
         return $this->addPayment(PaymentMethod::DirectDebit, $dueDate, $amount, $iban);
     }
 
-    /**
-     * Fraccionar el pago en N plazos iguales.
-     *
-     *     ->splitPayments(
-     *         method: PaymentMethod::Transfer,
-     *         installments: 3,
-     *         firstDueDate: '2025-01-31',
-     *         intervalDays: 30,
-     *         iban: 'ES91...',
-     *     )
-     */
     public function splitPayments(
         PaymentMethod $method,
         int           $installments,
@@ -313,7 +295,7 @@ final class Invoice
             $this->payments[] = new Payment(
                 method           : $method,
                 dueDate          : $date,
-                amount           : null, // se calcula en export: total / installments
+                amount           : null,
                 iban             : $iban ? str_replace(' ', '', $iban) : null,
                 installmentIndex : $i,
                 totalInstallments: $installments,
@@ -327,16 +309,6 @@ final class Invoice
 
     // ─── Corrective ──────────────────────────────────────
 
-    /**
-     * Marcar como factura rectificativa.
-     *
-     *     ->corrects(
-     *         invoiceNumber: 'FAC-000',
-     *         reason: CorrectionReason::TaxableBase,
-     *         periodStart: '2024-01-01',
-     *         periodEnd: '2024-03-31',
-     *     )
-     */
     public function corrects(
         string                        $invoiceNumber,
         CorrectionReason              $reason = CorrectionReason::TransactionDetail,
@@ -352,7 +324,6 @@ final class Invoice
         $this->correctionMethod = $method;
         $this->correctionReason = $reason;
 
-        // Default tax period: issue date for both start and end
         $this->correctionPeriodStart = $periodStart !== null
             ? (is_string($periodStart) ? new DateTimeImmutable($periodStart) : $periodStart)
             : null;

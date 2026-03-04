@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace MarioDevv\Rex\Tests\Facturae\Mother;
 
+use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
 use MarioDevv\Rex\Facturae\Invoice;
 use MarioDevv\Rex\Facturae\Party;
 use MarioDevv\Rex\Facturae\Enums\CorrectionMethod;
 use MarioDevv\Rex\Facturae\Enums\CorrectionReason;
 use MarioDevv\Rex\Facturae\Enums\PaymentMethod;
 use MarioDevv\Rex\Facturae\Enums\Schema;
+use MarioDevv\Rex\Facturae\Enums\SpecialTaxableEvent;
+use MarioDevv\Rex\Facturae\Enums\Tax;
+use MarioDevv\Rex\Facturae\Enums\UnitOfMeasure;
 
 final class InvoiceMother
 {
@@ -49,18 +53,9 @@ final class InvoiceMother
             ->email('juan@example.com');
     }
 
-    public static function canaryBuyer(): Party
-    {
-        return Party::person('12345678Z', 'Ana', 'Perez', 'Rodriguez')
-            ->address('C/ Mesa y Lopez, 10', '35007', 'Las Palmas de Gran Canaria', 'Las Palmas')
-            ->email('ana@example.com');
-    }
-
     // ─── Invoices ────────────────────────────────────────
 
-    /**
-     * Factura peninsular simple: 1 linea, IVA 21%, pago transferencia.
-     */
+    /** Factura peninsular simple: 1 linea, IVA 21%. */
     public static function simple(): Invoice
     {
         return Invoice::create('FAC-001')
@@ -70,9 +65,7 @@ final class InvoiceMother
             ->line('Servicio de consultoria', price: 1000.00, vat: 21);
     }
 
-    /**
-     * Factura canaria con IGIC: 4 lineas, pago transferencia.
-     */
+    /** Factura canaria con IGIC: 4 lineas, pago transferencia. */
     public static function canaryIgic(): Invoice
     {
         return Invoice::create('FAC-2024-0001')
@@ -89,9 +82,7 @@ final class InvoiceMother
             ->legalLiteral('Factura exenta de IVA por aplicacion del REF Canario. IGIC aplicado al tipo general.');
     }
 
-    /**
-     * Factura con IVA + IRPF: autonomo con retencion.
-     */
+    /** Factura con IVA + IRPF: autonomo con retencion. */
     public static function withIrpf(): Invoice
     {
         return Invoice::create('FAC-002')
@@ -105,9 +96,7 @@ final class InvoiceMother
             ->line('Servicio B', price: 500, vat: 21, irpf: 15);
     }
 
-    /**
-     * Factura con descuento en linea.
-     */
+    /** Factura con descuento en linea. */
     public static function withDiscount(): Invoice
     {
         return Invoice::create('FAC-003')
@@ -117,9 +106,7 @@ final class InvoiceMother
             ->line('Producto con descuento', price: 100, quantity: 1, vat: 21, discount: 10);
     }
 
-    /**
-     * Factura rectificativa.
-     */
+    /** Factura rectificativa. */
     public static function corrective(): Invoice
     {
         return self::simple()
@@ -132,9 +119,7 @@ final class InvoiceMother
             );
     }
 
-    /**
-     * Factura con recargo de equivalencia (joyeria, retail).
-     */
+    /** Factura con recargo de equivalencia. */
     public static function withSurcharge(): Invoice
     {
         return Invoice::create('FAC-005')
@@ -147,9 +132,7 @@ final class InvoiceMother
             ->cashPayment(dueDate: '2024-03-15');
     }
 
-    /**
-     * Factura con periodo de facturacion (servicio mensual).
-     */
+    /** Factura con periodo de facturacion y domiciliacion bancaria. */
     public static function withBillingPeriod(): Invoice
     {
         return Invoice::create('FAC-006')
@@ -163,9 +146,7 @@ final class InvoiceMother
             ->directDebitPayment(iban: 'ES80 0049 1500 0512 3456 7890', dueDate: '2025-01-10');
     }
 
-    /**
-     * Factura con fecha de operacion distinta (devengo).
-     */
+    /** Factura con fecha de operacion distinta (devengo). */
     public static function withOperationDate(): Invoice
     {
         return Invoice::create('FAC-007')
@@ -177,9 +158,7 @@ final class InvoiceMother
             ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2025-01-31');
     }
 
-    /**
-     * Factura con pagos fraccionados (3 plazos).
-     */
+    /** Factura con pagos fraccionados (3 plazos). */
     public static function withSplitPayments(): Invoice
     {
         return Invoice::create('FAC-008')
@@ -197,9 +176,7 @@ final class InvoiceMother
             );
     }
 
-    /**
-     * Factura con linea exenta.
-     */
+    /** Factura con linea exenta y motivo fiscal. */
     public static function withExemptLine(): Invoice
     {
         return Invoice::create('FAC-009')
@@ -207,13 +184,11 @@ final class InvoiceMother
             ->seller(self::peninsularCompany())
             ->buyer(self::personaBuyer())
             ->line('Consultoria tecnica', price: 800.00, vat: 21)
-            ->exemptLine('Formacion bonificada FUNDAE', price: 2000.00)
+            ->exemptLine('Formacion bonificada FUNDAE', price: 2000.00, reason: 'Exenta segun art. 20.Uno.9 LIVA')
             ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-10-01');
     }
 
-    /**
-     * Factura con pago en efectivo.
-     */
+    /** Factura con pago en efectivo. */
     public static function cashInvoice(): Invoice
     {
         return Invoice::create('FAC-010')
@@ -224,9 +199,7 @@ final class InvoiceMother
             ->cashPayment(dueDate: '2024-07-15');
     }
 
-    /**
-     * Factura con pago con tarjeta.
-     */
+    /** Factura con pago con tarjeta. */
     public static function cardInvoice(): Invoice
     {
         return Invoice::create('FAC-011')
@@ -237,9 +210,62 @@ final class InvoiceMother
             ->cardPayment(dueDate: '2024-08-20');
     }
 
-    /**
-     * Factura completa: todas las features posibles.
-     */
+    /** Factura con unidades de medida. */
+    public static function withUnits(): Invoice
+    {
+        return Invoice::create('FAC-012')
+            ->series('U')
+            ->date('2024-11-01')
+            ->seller(self::peninsularCompany())
+            ->buyer(self::personaBuyer())
+            ->line('Horas consultoria senior', price: 85.00, quantity: 40, vat: 21, unit: UnitOfMeasure::Hours)
+            ->line('Electricidad oficina', price: 0.15, quantity: 2500, vat: 21, unit: UnitOfMeasure::KWh)
+            ->line('Cajas material', price: 12.50, quantity: 20, vat: 21, unit: UnitOfMeasure::Boxes)
+            ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-12-01');
+    }
+
+    /** Factura con impuesto especial retenido (IE withheld override). */
+    public static function withSpecialTaxWithheld(): Invoice
+    {
+        return Invoice::create('FAC-013')
+            ->series('E')
+            ->date('2024-05-15')
+            ->seller(self::peninsularCompany())
+            ->buyer(self::personaBuyer())
+            ->line('Producto con IVA + IE retenido', price: 500.00, vat: 21, ie: 4, ieWithheld: true)
+            ->transferPayment(iban: 'ES91 2100 0418 4502 0005 1332', dueDate: '2024-06-15');
+    }
+
+    /** Factura con impuestos custom via customLine. */
+    public static function withCustomTaxes(): Invoice
+    {
+        return Invoice::create('FAC-014')
+            ->series('C')
+            ->date('2024-04-01')
+            ->seller(self::peninsularCompany())
+            ->buyer(self::personaBuyer())
+            ->customLine(
+                description: 'Producto con IGIC + REIGIC',
+                price: 300.00,
+                taxes: [
+                    new TaxBreakdown(Tax::IGIC, 7),
+                    new TaxBreakdown(Tax::REIGIC, 0.5),
+                ],
+                unit: UnitOfMeasure::Units,
+            )
+            ->customLine(
+                description: 'Producto exento con motivo',
+                price: 150.00,
+                taxes: [new TaxBreakdown(Tax::IVA, 0)],
+                specialTaxableEvent: SpecialTaxableEvent::Exempt,
+                specialTaxableEventReason: 'Operacion exenta art. 20 LIVA',
+            )
+            ->cashPayment(dueDate: '2024-04-01');
+    }
+
+    // ─── Full featured ───────────────────────────────────
+
+    /** Factura completa canaria: todo lo posible. */
     public static function fullFeatured(): Invoice
     {
         return Invoice::create('FAC-FULL-001')
@@ -250,10 +276,11 @@ final class InvoiceMother
             ->schema(Schema::V3_2_2)
             ->seller(self::atsys())
             ->buyer(self::clienteDemo())
-            ->line('Desarrollo web completo', price: 3500.00, igic: 7)
-            ->line('Pack SEO trimestral', price: 450.00, quantity: 3, igic: 7)
+            ->line('Desarrollo web completo', price: 3500.00, igic: 7, unit: UnitOfMeasure::Units)
+            ->line('Pack SEO trimestral', price: 450.00, quantity: 3, igic: 7, unit: UnitOfMeasure::Units)
             ->line('Certificados SSL (2 dominios)', price: 45.50, quantity: 2, igic: 7)
-            ->exemptLine('Formacion equipo cliente (bonificada)', price: 1500.00)
+            ->line('Horas soporte tecnico', price: 65.00, quantity: 12, igic: 7, unit: UnitOfMeasure::Hours)
+            ->exemptLine('Formacion equipo cliente (bonificada)', price: 1500.00, reason: 'Exenta por formacion bonificada')
             ->splitPayments(
                 method: PaymentMethod::Transfer,
                 installments: 3,
@@ -264,9 +291,7 @@ final class InvoiceMother
             ->legalLiteral('Factura exenta de IVA por aplicacion del REF Canario. IGIC al tipo general del 7%.');
     }
 
-    /**
-     * Factura completa peninsular: IVA + IRPF + recargo + exenta + periodo + fraccionada.
-     */
+    /** Factura completa peninsular: IVA + IRPF + recargo + IE retenido + exenta + unidades. */
     public static function fullFeaturedPeninsular(): Invoice
     {
         return Invoice::create('FAC-FULL-002')
@@ -277,10 +302,11 @@ final class InvoiceMother
             ->schema(Schema::V3_2_2)
             ->seller(self::peninsularCompany())
             ->buyer(self::personaBuyer())
-            ->line('Consultoria estrategica', price: 2000.00, vat: 21, irpf: 15)
-            ->line('Material oficina', price: 150.00, quantity: 3, vat: 21, surcharge: 5.2)
+            ->line('Consultoria estrategica', price: 2000.00, vat: 21, irpf: 15, unit: UnitOfMeasure::Hours)
+            ->line('Material oficina', price: 150.00, quantity: 3, vat: 21, surcharge: 5.2, unit: UnitOfMeasure::Boxes)
             ->line('Licencia software', price: 599.00, vat: 21)
-            ->exemptLine('Formacion interna art. 20 LIVA', price: 800.00)
+            ->line('Producto con IE retenido', price: 200.00, vat: 21, ie: 4, ieWithheld: true)
+            ->exemptLine('Formacion interna art. 20 LIVA', price: 800.00, reason: 'Exenta segun art. 20.Uno.9 LIVA')
             ->splitPayments(
                 method: PaymentMethod::Transfer,
                 installments: 2,
@@ -288,16 +314,16 @@ final class InvoiceMother
                 intervalDays: 30,
                 iban: 'ES91 2100 0418 4502 0005 1332',
             )
-            ->legalLiteral('Operacion sujeta a retencion de IRPF. Recargo de equivalencia aplicado segun art. 148 LIVA.');
+            ->legalLiteral('Retencion IRPF aplicada. Recargo de equivalencia segun art. 148 LIVA.');
     }
 
     // ─── Helpers para benchmarks ─────────────────────────
 
-    /**
-     * Factura con N lineas aleatorias para benchmarks.
-     */
+    /** Factura con N lineas aleatorias para benchmarks. */
     public static function benchmark(int $lines = 4): Invoice
     {
+        $units = [UnitOfMeasure::Units, UnitOfMeasure::Hours, UnitOfMeasure::KWh, UnitOfMeasure::Boxes];
+
         $invoice = Invoice::create('BENCH-001')
             ->series('B')
             ->date('2024-12-15')
@@ -312,11 +338,12 @@ final class InvoiceMother
                 "Servicio profesional #{$i}",
                 price: round(mt_rand(1000, 50000) / 100, 2),
                 igic: 7,
+                unit: $units[$i % count($units)],
             );
         }
 
         return $invoice
-            ->exemptLine('Formacion incluida', price: 500.00)
+            ->exemptLine('Formacion incluida', price: 500.00, reason: 'Formacion bonificada')
             ->splitPayments(
                 method: PaymentMethod::Transfer,
                 installments: 3,
