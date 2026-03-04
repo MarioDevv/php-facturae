@@ -14,6 +14,9 @@ use MarioDevv\Rex\Verifactu\Exceptions\InvalidRecordException;
 use MarioDevv\Rex\Verifactu\RegistrationRecord;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @covers \MarioDevv\Rex\Verifactu\RegistrationRecord
+ */
 final class RegistrationRecordTest extends TestCase
 {
     // -------------------------------------------------------------------------

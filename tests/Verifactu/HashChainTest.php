@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Tests specifically focused on the hash chaining mechanism (Encadenamiento).
+ *
+ * @covers \MarioDevv\Rex\Verifactu\RegistrationRecord
  */
 final class HashChainTest extends TestCase
 {
