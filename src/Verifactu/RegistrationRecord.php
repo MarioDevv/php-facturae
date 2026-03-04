@@ -552,6 +552,8 @@ final class RegistrationRecord
     public function isAlta(): bool { return $this->recordType === RecordType::Alta; }
     public function isAnulacion(): bool { return $this->recordType === RecordType::Anulacion; }
 
+    public function getIssuerName(): string { return $this->issuerName; }
+
     /** @return BreakdownItem[] */
     public function getBreakdowns(): array { return $this->breakdowns; }
 
