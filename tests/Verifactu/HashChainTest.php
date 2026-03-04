@@ -10,11 +10,6 @@ use MarioDevv\Rex\Verifactu\Enums\InvoiceType;
 use MarioDevv\Rex\Verifactu\RegistrationRecord;
 use PHPUnit\Framework\TestCase;
 
-/**
- * Tests specifically focused on the hash chaining mechanism (Encadenamiento).
- *
- * @covers \MarioDevv\Rex\Verifactu\RegistrationRecord
- */
 final class HashChainTest extends TestCase
 {
     public function test_hash_format_is_sha256_hex(): void

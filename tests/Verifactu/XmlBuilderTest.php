@@ -9,11 +9,6 @@ use DOMXPath;
 use MarioDevv\Rex\Tests\Verifactu\Mother\RecordMother;
 use PHPUnit\Framework\TestCase;
 
-/**
- * Tests XML output structure and content.
- *
- * @covers \MarioDevv\Rex\Verifactu\Xml\XmlBuilder
- */
 final class XmlBuilderTest extends TestCase
 {
     private function xpath(string $xml): DOMXPath
