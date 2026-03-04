@@ -1,6 +1,6 @@
 # Rex
 
-[![Tests](https://github.com/MarioDevv/rex/workflows/Tests/badge.svg)](https://github.com/MarioDevv/rex/actions)
+[![Tests](https://github.com/MarioDevv/rex/actions/workflows/php.yml/badge.svg?branch=master)](https://github.com/MarioDevv/rex/actions/workflows/php.yml)
 [![PHP](https://img.shields.io/badge/php-%3E%3D8.2-8892BF)](composer.json)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
