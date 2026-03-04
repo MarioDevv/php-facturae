@@ -14,17 +14,16 @@ use MarioDevv\Rex\Facturae\Entities\TaxBreakdown;
 final class XmlExporter
 {
     private DOMDocument $dom;
+    private string      $ns;
 
     public function export(Invoice $invoice): string
     {
-        $this->dom = new DOMDocument('1.0', 'UTF-8');
+        $this->dom               = new DOMDocument('1.0', 'UTF-8');
         $this->dom->formatOutput = true;
+        $this->ns                = $invoice->getSchema()->xmlNamespace();
 
-        $root = $this->dom->createElementNS(
-            $invoice->getSchema()->xmlNamespace(),
-            'fe:Facturae',
-        );
-        $root->setAttribute('xmlns:ds', 'http://www.w3.org/2000/09/xmldsig#');
+        $root = $this->dom->createElementNS($this->ns, 'fe:Facturae');
+        $root->setAttributeNS(/2000 / xmlns / ', 'xmlns:ds', /2000/09/xmldsig#');
         $this->dom->appendChild($root);
 
         $this->appendFileHeader($root, $invoice);
@@ -34,7 +33,6 @@ final class XmlExporter
         return $this->dom->saveXML();
     }
 
-    // ─── File Header ─────────────────────────────────────
 
     private function appendFileHeader(DOMElement $root, Invoice $invoice): void
     {
@@ -42,6 +40,7 @@ final class XmlExporter
         $root->appendChild($header);
         $header->appendChild($this->el('SchemaVersion', $invoice->getSchema()->value));
         $header->appendChild($this->el('Modality', 'I'));
+        $header->appendChild($this->el('InvoiceIssuerType', 'EM'));
 
         $batch = $this->el('Batch');
         $header->appendChild($batch);
@@ -63,10 +62,13 @@ final class XmlExporter
         $batch->appendChild($te);
         $te->appendChild($this->el('TotalAmount', $this->money($total)));
 
+        $tex = $this->el('TotalExecutableAmount');
+        $batch->appendChild($tex);
+        $tex->appendChild($this->el('TotalAmount', $this->money($total)));
+
         $batch->appendChild($this->el('InvoiceCurrencyCode', $invoice->getCurrency()));
     }
 
-    // ─── Parties ─────────────────────────────────────────
 
     private function appendParties(DOMElement $root, Invoice $invoice): void
     {
@@ -97,12 +99,12 @@ final class XmlExporter
         }
 
         foreach ($party->getCentres() as $centre) {
-            $el = $this->el('AdministrativeCentre');
-            $parent->appendChild($el);
-            $el->appendChild($this->el('CentreCode', $centre['code']));
-            $el->appendChild($this->el('RoleTypeCode', $centre['role']));
+            $ac = $this->el('AdministrativeCentre');
+            $parent->appendChild($ac);
+            $ac->appendChild($this->el('CentreCode', $centre['code']));
+            $ac->appendChild($this->el('RoleTypeCode', $centre['role']));
             if ($centre['name'] !== null) {
-                $el->appendChild($this->el('Name', $centre['name']));
+                $ac->appendChild($this->el('Name', $centre['name']));
             }
         }
     }
@@ -189,7 +191,6 @@ final class XmlExporter
         $this->maybe($c, 'INETownCode', $party->getIneTownCode());
     }
 
-    // ─── Invoice body ────────────────────────────────────
 
     private function appendInvoice(DOMElement $root, Invoice $invoice): void
     {
@@ -203,8 +204,8 @@ final class XmlExporter
         $this->appendIssueData($inv, $invoice);
         $this->appendTaxes($inv, $invoice);
         $this->appendTotals($inv, $invoice);
-        $this->appendPayments($inv, $invoice);
         $this->appendItems($inv, $invoice);
+        $this->appendPayments($inv, $invoice);
         $this->appendAdditionalData($inv, $invoice);
     }
 
@@ -219,6 +220,9 @@ final class XmlExporter
         }
 
         $header->appendChild($this->el('InvoiceDocumentType', $invoice->getType()->value));
+
+        $isCorrective = in_array($invoice->getType()->value, ['FR', 'FS'], true);
+        $header->appendChild($this->el('InvoiceClass', $isCorrective ? 'OR' : 'OO'));
 
         if ($invoice->getCorrectedNumber() !== null) {
             $c = $this->el('Corrective');
@@ -299,6 +303,71 @@ final class XmlExporter
         $totals->appendChild($this->el('TotalExecutableAmount', $this->money($total)));
     }
 
+    private function appendItems(DOMElement $inv, Invoice $invoice): void
+    {
+        $items = $this->el('Items');
+        $inv->appendChild($items);
+
+        foreach ($invoice->getLines() as $line) {
+            $item = $this->el('InvoiceLine');
+            $items->appendChild($item);
+
+            $this->maybe($item, 'ArticleCode', $line->articleCode);
+            $item->appendChild($this->el('ItemDescription', $line->description));
+            $item->appendChild($this->el('Quantity', (string)$line->quantity));
+            $item->appendChild($this->el('UnitPriceWithoutTax', $this->money($line->unitPrice)));
+            $item->appendChild($this->el('TotalCost', $this->money($line->quantity * $line->unitPrice)));
+
+            if ($line->discount !== null && $line->discount > 0) {
+                $discounts = $this->el('DiscountsAndRebates');
+                $item->appendChild($discounts);
+                $disc = $this->el('Discount');
+                $discounts->appendChild($disc);
+                $disc->appendChild($this->el('DiscountReason', 'Descuento'));
+                $disc->appendChild($this->el('DiscountRate', $this->money($line->discount)));
+                $disc->appendChild($this->el('DiscountAmount', $this->money(
+                    round($line->quantity * $line->unitPrice * $line->discount / 100, 2)
+                )));
+            }
+
+            $item->appendChild($this->el('GrossAmount', $this->money($line->grossAmount())));
+
+            $outputTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => !$t->isWithholding);
+            if (!empty($outputTaxes)) {
+                $el = $this->el('TaxesOutputs');
+                $item->appendChild($el);
+                foreach ($outputTaxes as $tax) {
+                    $this->appendLineTax($el, $tax, $line->grossAmount());
+                }
+            }
+
+            $withheldTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => $t->isWithholding);
+            if (!empty($withheldTaxes)) {
+                $el = $this->el('TaxesWithheld');
+                $item->appendChild($el);
+                foreach ($withheldTaxes as $tax) {
+                    $this->appendLineTax($el, $tax, $line->grossAmount());
+                }
+            }
+        }
+    }
+
+    private function appendLineTax(DOMElement $parent, TaxBreakdown $tax, float $base): void
+    {
+        $el = $this->el('Tax');
+        $parent->appendChild($el);
+        $el->appendChild($this->el('TaxTypeCode', $tax->type->value));
+        $el->appendChild($this->el('TaxRate', $this->money($tax->rate)));
+
+        $taxableBase = $this->el('TaxableBase');
+        $el->appendChild($taxableBase);
+        $taxableBase->appendChild($this->el('TotalAmount', $this->money($base)));
+
+        $taxAmount = $this->el('TaxAmount');
+        $el->appendChild($taxAmount);
+        $taxAmount->appendChild($this->el('TotalAmount', $this->money(round($base * $tax->rate / 100, 2))));
+    }
+
     private function appendPayments(DOMElement $inv, Invoice $invoice): void
     {
         if (empty($invoice->getPayments())) {
@@ -336,73 +405,6 @@ final class XmlExporter
         }
     }
 
-    private function appendItems(DOMElement $inv, Invoice $invoice): void
-    {
-        $items = $this->el('Items');
-        $inv->appendChild($items);
-
-        foreach ($invoice->getLines() as $line) {
-            $item = $this->el('InvoiceLine');
-            $items->appendChild($item);
-
-            $this->maybe($item, 'ArticleCode', $line->articleCode);
-            $item->appendChild($this->el('ItemDescription', $line->description));
-            $item->appendChild($this->el('Quantity', (string) $line->quantity));
-            $item->appendChild($this->el('UnitPriceWithoutTax', $this->money($line->unitPrice)));
-            $item->appendChild($this->el('TotalCost', $this->money($line->quantity * $line->unitPrice)));
-
-            if ($line->discount !== null && $line->discount > 0) {
-                $discounts = $this->el('DiscountsAndRebates');
-                $item->appendChild($discounts);
-                $disc = $this->el('Discount');
-                $discounts->appendChild($disc);
-                $disc->appendChild($this->el('DiscountReason', 'Descuento'));
-                $disc->appendChild($this->el('DiscountRate', $this->money($line->discount)));
-                $disc->appendChild($this->el('DiscountAmount', $this->money(
-                    round($line->quantity * $line->unitPrice * $line->discount / 100, 2)
-                )));
-            }
-
-            $item->appendChild($this->el('GrossAmount', $this->money($line->grossAmount())));
-
-            // Line-level output taxes
-            $outputTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => !$t->isWithholding);
-            if (!empty($outputTaxes)) {
-                $el = $this->el('TaxesOutputs');
-                $item->appendChild($el);
-                foreach ($outputTaxes as $tax) {
-                    $this->appendLineTax($el, $tax, $line->grossAmount());
-                }
-            }
-
-            // Line-level withheld taxes
-            $withheldTaxes = array_filter($line->taxes, fn(TaxBreakdown $t) => $t->isWithholding);
-            if (!empty($withheldTaxes)) {
-                $el = $this->el('TaxesWithheld');
-                $item->appendChild($el);
-                foreach ($withheldTaxes as $tax) {
-                    $this->appendLineTax($el, $tax, $line->grossAmount());
-                }
-            }
-        }
-    }
-
-    private function appendLineTax(DOMElement $parent, TaxBreakdown $tax, float $base): void
-    {
-        $el = $this->el('Tax');
-        $parent->appendChild($el);
-        $el->appendChild($this->el('TaxTypeCode', $tax->type->value));
-        $el->appendChild($this->el('TaxRate', $this->money($tax->rate)));
-
-        $taxableBase = $this->el('TaxableBase');
-        $el->appendChild($taxableBase);
-        $taxableBase->appendChild($this->el('TotalAmount', $this->money($base)));
-
-        $taxAmount = $this->el('TaxAmount');
-        $el->appendChild($taxAmount);
-        $taxAmount->appendChild($this->el('TotalAmount', $this->money(round($base * $tax->rate / 100, 2))));
-    }
-
     private function appendAdditionalData(DOMElement $inv, Invoice $invoice): void
     {
         if ($invoice->getLegalLiteral() === null) {
@@ -416,7 +418,6 @@ final class XmlExporter
         );
     }
 
-    // ─── Calculation helpers ─────────────────────────────
 
     /**
      * @param Line[] $lines
@@ -485,7 +486,6 @@ final class XmlExporter
             - $this->taxAmount($invoice->getLines(), true);
     }
 
-    // ─── DOM helpers ─────────────────────────────────────
 
     private function el(string $name, ?string $value = null): DOMElement
     {
