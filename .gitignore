@@ -1,5 +1,6 @@
 /vendor/
 /.phpunit.cache/test-results
+phpunit.local.xml
 /dist
 composer.lock
 .idea/
