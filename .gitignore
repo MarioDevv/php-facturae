@@ -2,3 +2,4 @@
 /.phpunit.cache/test-results
 /dist
 composer.lock
+.idea/
