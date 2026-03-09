@@ -4,7 +4,9 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src/Facturae" isTestSource="false" packagePrefix="MarioDevv\Rex\Facturae\" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" packagePrefix="PhpFacturae\Tests\" />
       <sourceFolder url="file://$MODULE_DIR$/tests/Facturae" isTestSource="true" packagePrefix="MarioDevv\Rex\Tests\Facturae\" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" packagePrefix="PhpFacturae\" />
       <excludeFolder url="file://$MODULE_DIR$/vendor/composer" />
       <excludeFolder url="file://$MODULE_DIR$/vendor/myclabs/deep-copy" />
       <excludeFolder url="file://$MODULE_DIR$/vendor/nikic/php-parser" />
