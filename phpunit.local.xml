@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         cacheDirectory=".phpunit.cache"
+         executionOrder="depends,defects"
+         shortenArraysForExportThreshold="10"
+         beStrictAboutCoverageMetadata="true"
+         beStrictAboutOutputDuringTests="true"
+         displayDetailsOnPhpunitDeprecations="true"
+         failOnPhpunitDeprecation="true"
+         failOnRisky="true"
+         failOnWarning="true">
+
+    <testsuites>
+        <testsuite name="Facturae">
+            <directory>tests</directory>
+        </testsuite>
+
+        <testsuite name="Verifactu">
+            <directory>tests/Verifactu</directory>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+
+    <php>
+        <env name="VERIFACTU_CERT_PATH" value="/home/mario/certs/certificado.pfx"/>
+        <env name="VERIFACTU_CERT_PASS" value="contraseña"/>
+        <env name="VERIFACTU_NIF"       value="B76123456"/>
+        <env name="VERIFACTU_NOMBRE"    value="Atlantic Systems S.L."/>
+    </php>
+
+</phpunit>

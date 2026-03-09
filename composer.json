@@ -1,24 +1,36 @@
 {
-  "name": "mariodevv/rex",
-  "description": "Spanish business integrations for PHP",
+  "name": "php-facturae/php-facturae",
+  "description": "Generate, validate and sign FacturaE (3.2.x) electronic invoices in PHP — the modern alternative for Spanish e-invoicing",
   "type": "library",
   "license": "MIT",
   "keywords": [
     "facturae",
     "factura-electronica",
+    "electronic-invoice",
+    "e-invoice",
     "spain",
     "fiscal",
     "xades",
     "xml",
-    "aeat"
+    "aeat",
+    "tax",
+    "invoice",
+    "signing",
+    "php-facturae",
+    "facturae-php"
   ],
-  "homepage": "https://github.com/mariodevv/rex",
+  "homepage": "https://github.com/php-facturae/php-facturae",
   "authors": [
     {
-      "name": "MarioDevv",
-      "email": "perezmario.info@gmail.com"
+      "name": "Mario Pérez",
+      "email": "perezmario.info@gmail.com",
+      "role": "Lead Developer"
     }
   ],
+  "support": {
+    "issues": "https://github.com/php-facturae/php-facturae/issues",
+    "source": "https://github.com/php-facturae/php-facturae"
+  },
   "require": {
     "php": "^8.2",
     "ext-openssl": "*",
@@ -30,12 +42,12 @@
   },
   "autoload": {
     "psr-4": {
-      "MarioDevv\\Rex\\Facturae\\": "src/Facturae/"
+      "PhpFacturae\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "MarioDevv\\Rex\\Tests\\Facturae\\": "tests/Facturae/"
+      "PhpFacturae\\Tests\\": "tests/"
     }
   },
   "scripts": {
