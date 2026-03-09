@@ -1,3 +1,4 @@
 /vendor/
 /.phpunit.cache/test-results
 /dist
+composer.lock
