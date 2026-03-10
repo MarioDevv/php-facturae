@@ -1,29 +1,40 @@
 {
   "name": "php-facturae/php-facturae",
-  "description": "Generate, validate and sign FacturaE (3.2.x) electronic invoices in PHP — the modern alternative for Spanish e-invoicing",
+  "description": "Generate, sign and export FacturaE electronic invoices in PHP 8.2+ — fluent API, XAdES-EPES signing, zero dependencies. Genera y firma facturas electrónicas.",
   "type": "library",
   "license": "MIT",
   "keywords": [
     "facturae",
+    "facturae-php",
     "factura-electronica",
     "electronic-invoice",
+    "e-invoicing",
     "e-invoice",
     "spain",
+    "spanish",
     "fiscal",
     "xades",
+    "xades-epes",
     "xml",
+    "xml-signing",
     "aeat",
     "tax",
     "invoice",
     "signing",
-    "php-facturae",
-    "facturae-php"
+    "pkcs12",
+    "face",
+    "faceb2b",
+    "iva",
+    "igic",
+    "irpf",
+    "php-facturae"
   ],
   "homepage": "https://github.com/php-facturae/php-facturae",
   "authors": [
     {
       "name": "Mario Pérez",
       "email": "perezmario.info@gmail.com",
+      "homepage": "https://mariodevv.com",
       "role": "Lead Developer"
     }
   ],
@@ -31,6 +42,12 @@
     "issues": "https://github.com/php-facturae/php-facturae/issues",
     "source": "https://github.com/php-facturae/php-facturae"
   },
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/php-facturae"
+    }
+  ],
   "require": {
     "php": "^8.2",
     "ext-openssl": "*",
@@ -54,5 +71,8 @@
     "test": "phpunit",
     "analyse": "phpstan analyse src --level=8"
   },
-  "minimum-stability": "stable"
+  "minimum-stability": "stable",
+  "config": {
+    "sort-packages": true
+  }
 }
