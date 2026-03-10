@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace MarioDevv\Rex\Tests\Facturae;
+namespace PhpFacturae\Tests;
 
 use PhpFacturae\Tests\Mother\InvoiceMother;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +23,11 @@ final class GenerateRealInvoiceTest extends TestCase
     public function test_canary_igic_invoice(): void
     {
         $path = self::$distDir . '/factura-canaria-igic.xsig';
-        InvoiceMother::canaryIgic()->export($path);
+        try {
+            InvoiceMother::canaryIgic()->export($path);
+        } catch (\Throwable $e) {
+            $this->fail($e::class . ': ' . $e->getMessage());
+        }
         $this->assertValidFacturae($path);
     }
 

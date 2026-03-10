@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace MarioDevv\Rex\Tests\Facturae;
+namespace PhpFacturae\Tests;
 use PhpFacturae\Party;
 use PhpFacturae\Exceptions\InvalidPostalCodeException;
 use PHPUnit\Framework\TestCase;
