@@ -42,7 +42,7 @@ jobs:
         run: composer install --prefer-dist --no-progress --no-suggest
 
       - name: Run PHPStan
-        run: vendor/bin/phpstan analyse --no-progress
+        run: vendor/bin/phpstan analyse src --level=8 --no-progress
 
       - name: Run tests
         run: vendor/bin/phpunit
