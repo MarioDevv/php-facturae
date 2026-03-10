@@ -13,7 +13,7 @@ final class GenerateRealInvoiceTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        self::$distDir = dirname(__DIR__, 2) . '/dist';
+        self::$distDir = dirname(__DIR__) . '/dist';
 
         if (!is_dir(self::$distDir)) {
             mkdir(self::$distDir, 0755, true);
