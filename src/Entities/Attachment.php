@@ -28,8 +28,14 @@ final class Attachment
             throw new RuntimeException("Attachment file not found: {$path}");
         }
 
+        $content = file_get_contents($path);
+
+        if ($content === false) {
+            throw new RuntimeException("Failed to read attachment file: {$path}");
+        }
+
         return new self(
-            base64_encode(file_get_contents($path)),
+            base64_encode($content),
                 $mimeType ?? mime_content_type($path) ?: 'application/octet-stream',
             $description,
         );

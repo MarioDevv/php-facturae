@@ -27,7 +27,6 @@ final class Pkcs12Signer implements InvoiceSigner
 {
     private const XMLDSIG_NS  = 'http://www.w3.org/2000/09/xmldsig#';
     private const XADES_NS    = 'http://uri.etsi.org/01903/v1.3.2#';
-    private const C14N        = 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315';
     private const C14N_ALGO   = 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315';
     private const SHA256_ALGO = 'http://www.w3.org/2001/04/xmlenc#sha256';
     private const RSA_SHA256  = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
@@ -37,13 +36,12 @@ final class Pkcs12Signer implements InvoiceSigner
     private const POLICY_URL    = 'http://www.facturae.es/politica_de_firma_formato_facturae/politica_de_firma_formato_facturae_v3_1.pdf';
     private const POLICY_DIGEST = 'Ohixl6upD6av8N7pEvDABhEL6hM=';
 
-    /** @var \OpenSSLAsymmetricKey */
-    private mixed $privateKey;
+    private \OpenSSLAsymmetricKey $privateKey;
 
     /** @var string DER-encoded certificate */
     private string $certificate;
 
-    /** @var string[] DER-encoded CA chain */
+    /** @var string[] DER-encoded CA chain (included in KeyInfo when present) */
     private array $chain = [];
 
     /** @var string|null TSA endpoint URL */
@@ -68,16 +66,21 @@ final class Pkcs12Signer implements InvoiceSigner
 
         $content = file_get_contents($path);
 
+        if ($content === false) {
+            throw new RuntimeException("Failed to read certificate file: {$path}");
+        }
+
         if (!openssl_pkcs12_read($content, $certs, $passphrase ?? '')) {
             throw new RuntimeException('Failed to read PKCS#12 file: ' . openssl_error_string());
         }
 
         $signer = new self();
 
-        $signer->privateKey = openssl_pkey_get_private($certs['pkey']);
-        if ($signer->privateKey === false) {
+        $privateKey = openssl_pkey_get_private($certs['pkey']);
+        if ($privateKey === false) {
             throw new RuntimeException('Failed to load private key: ' . openssl_error_string());
         }
+        $signer->privateKey = $privateKey;
 
         $signer->certificate = self::pemToDer($certs['cert']);
 
@@ -104,15 +107,23 @@ final class Pkcs12Signer implements InvoiceSigner
 
         $signer = new self();
 
-        $signer->privateKey = openssl_pkey_get_private(
-            file_get_contents($keyPath),
-            $passphrase ?? '',
-        );
-        if ($signer->privateKey === false) {
-            throw new RuntimeException('Failed to load private key: ' . openssl_error_string());
+        $keyContent = file_get_contents($keyPath);
+        if ($keyContent === false) {
+            throw new RuntimeException("Failed to read key file: {$keyPath}");
         }
 
-        $signer->certificate = self::pemToDer(file_get_contents($certPath));
+        $privateKey = openssl_pkey_get_private($keyContent, $passphrase ?? '');
+        if ($privateKey === false) {
+            throw new RuntimeException('Failed to load private key: ' . openssl_error_string());
+        }
+        $signer->privateKey = $privateKey;
+
+        $certContent = file_get_contents($certPath);
+        if ($certContent === false) {
+            throw new RuntimeException("Failed to read certificate file: {$certPath}");
+        }
+
+        $signer->certificate = self::pemToDer($certContent);
 
         return $signer;
     }
@@ -154,7 +165,9 @@ final class Pkcs12Signer implements InvoiceSigner
         );
 
         // Insert signature as last child of root
-        $doc->documentElement->appendChild($sig);
+        $root = $doc->documentElement;
+        assert($root !== null, 'Document must have a root element');
+        $root->appendChild($sig);
 
         // ─── Compute digests ──────────────────────────────
 
@@ -173,11 +186,10 @@ final class Pkcs12Signer implements InvoiceSigner
         $xpath = new DOMXPath($doc);
         $xpath->registerNamespace('ds', self::XMLDSIG_NS);
 
-        $refs = $xpath->query('//ds:Signature/ds:SignedInfo/ds:Reference');
-        foreach ($refs as $ref) {
-            /** @var DOMElement $ref */
+        foreach ($this->xpathQuery($xpath, '//ds:Signature/ds:SignedInfo/ds:Reference') as $ref) {
+            assert($ref instanceof DOMElement);
             $uri = $ref->getAttribute('URI');
-            $digestValueNode = $xpath->query('ds:DigestValue', $ref)->item(0);
+            $digestValueNode = $this->xpathQueryOne($xpath, 'ds:DigestValue', $ref);
 
             if ($uri === '') {
                 $digestValueNode->textContent = $docDigest;
@@ -189,7 +201,8 @@ final class Pkcs12Signer implements InvoiceSigner
         }
 
         // ─── Compute signature value ──────────────────────
-        $signedInfoNode = $xpath->query('//ds:Signature/ds:SignedInfo')->item(0);
+        $signedInfoNode = $this->xpathQueryOne($xpath, '//ds:Signature/ds:SignedInfo');
+        assert($signedInfoNode instanceof DOMElement);
         $signedInfoC14n = $signedInfoNode->C14N();
 
         $signatureValue = '';
@@ -197,7 +210,7 @@ final class Pkcs12Signer implements InvoiceSigner
             throw new RuntimeException('Failed to compute signature: ' . openssl_error_string());
         }
 
-        $sigValueNode = $xpath->query('//ds:Signature/ds:SignatureValue')->item(0);
+        $sigValueNode = $this->xpathQueryOne($xpath, '//ds:Signature/ds:SignatureValue');
         $sigValueNode->textContent = "\n" . $this->formatBase64(base64_encode($signatureValue)) . "\n";
 
         // ─── Timestamp (optional) ─────────────────────────
@@ -205,7 +218,13 @@ final class Pkcs12Signer implements InvoiceSigner
             $this->applyTimestamp($doc, $xpath, $signatureValue, $signatureId);
         }
 
-        return $doc->saveXML();
+        $result = $doc->saveXML();
+
+        if ($result === false) {
+            throw new RuntimeException('Failed to serialize signed XML document');
+        }
+
+        return $result;
     }
 
     // ─── Signature building ─────────────────────────────
@@ -300,6 +319,12 @@ final class Pkcs12Signer implements InvoiceSigner
         $keyInfo->appendChild($x509data);
         $x509cert = $this->dsEl($doc, 'ds:X509Certificate', base64_encode($this->certificate));
         $x509data->appendChild($x509cert);
+
+        // CA chain certificates
+        foreach ($this->chain as $chainCert) {
+            $chainEl = $this->dsEl($doc, 'ds:X509Certificate', base64_encode($chainCert));
+            $x509data->appendChild($chainEl);
+        }
 
         // KeyValue
         $keyDetails = openssl_pkey_get_details($this->privateKey);
@@ -397,8 +422,8 @@ final class Pkcs12Signer implements InvoiceSigner
 
         $certData = openssl_x509_parse('-----BEGIN CERTIFICATE-----' . "\n" . base64_encode($this->certificate) . "\n" . '-----END CERTIFICATE-----');
 
-        $issuerName = $this->formatIssuerName($certData['issuer'] ?? []);
-        $serialNumber = $certData['serialNumber'] ?? '0';
+        $issuerName = $this->formatIssuerName($certData !== false ? ($certData['issuer'] ?? []) : []);
+        $serialNumber = (string) ($certData !== false ? ($certData['serialNumber'] ?? '0') : '0');
 
         $x509Issuer = $this->dsEl($doc, 'ds:X509IssuerName', $issuerName);
         $issuerSerial->appendChild($x509Issuer);
@@ -442,19 +467,23 @@ final class Pkcs12Signer implements InvoiceSigner
 
     private function computeDocumentDigest(DOMDocument $doc): string
     {
-        // Clone and remove Signature element for enveloped-signature transform
         $clone = clone $doc;
         $xpath = new DOMXPath($clone);
         $xpath->registerNamespace('ds', self::XMLDSIG_NS);
 
-        $sigNode = $xpath->query('//ds:Signature')->item(0);
-        if ($sigNode !== null) {
-            $sigNode->parentNode->removeChild($sigNode);
+        $sigNodes = $xpath->query('//ds:Signature');
+
+        if ($sigNodes !== false && $sigNodes->length > 0) {
+            $sigNode = $sigNodes->item(0);
+            if ($sigNode instanceof \DOMNode && $sigNode->parentNode !== null) {
+                $sigNode->parentNode->removeChild($sigNode);
+            }
         }
 
-        $c14n = $clone->documentElement->C14N();
+        $root = $clone->documentElement;
+        assert($root !== null);
 
-        return base64_encode(hash('sha256', $c14n, true));
+        return base64_encode(hash('sha256', $root->C14N(), true));
     }
 
     private function computeNodeDigest(DOMElement $node): string
@@ -468,29 +497,19 @@ final class Pkcs12Signer implements InvoiceSigner
 
     private function applyTimestamp(DOMDocument $doc, DOMXPath $xpath, string $signatureValue, string $signatureId): void
     {
-        // Create TimeStamp Request (RFC 3161)
         $tsDigest = hash('sha256', $signatureValue, true);
-
-        // Build ASN.1 TimeStampReq manually
         $tsRequest = $this->buildTimestampRequest($tsDigest);
-
-        // Send request
         $tsResponse = $this->sendTimestampRequest($tsRequest);
 
         if ($tsResponse === null) {
-            return; // TSA failed, signature is still valid without timestamp
+            return;
         }
 
-        // Add UnsignedProperties with timestamp
-        $sigNode = $xpath->query('//ds:Signature')->item(0);
-        $objectNode = $xpath->query('ds:Object', $sigNode)->item(0);
+        $xpath->registerNamespace('xades', self::XADES_NS);
 
-        $qpNode = $xpath->query('xades:QualifyingProperties', $objectNode)->item(0);
-        if ($qpNode === null) {
-            // Register namespace for XPath
-            $xpath->registerNamespace('xades', self::XADES_NS);
-            $qpNode = $xpath->query('.//xades:QualifyingProperties', $objectNode)->item(0);
-        }
+        $sigNode = $this->xpathQueryOne($xpath, '//ds:Signature');
+        $objectNode = $this->xpathQueryOne($xpath, 'ds:Object', $sigNode);
+        $qpNode = $this->xpathQueryOne($xpath, './/xades:QualifyingProperties', $objectNode);
 
         $unsignedProps = $doc->createElementNS(self::XADES_NS, 'xades:UnsignedProperties');
         $qpNode->appendChild($unsignedProps);
@@ -509,6 +528,7 @@ final class Pkcs12Signer implements InvoiceSigner
     {
         // SHA-256 OID: 2.16.840.1.101.3.4.2.1
         $oid = hex2bin('0609608648016503040201');
+        assert($oid !== false);
 
         // AlgorithmIdentifier SEQUENCE
         $algoId = "\x30" . chr(strlen($oid) + 2) . $oid . "\x05\x00";
@@ -534,6 +554,11 @@ final class Pkcs12Signer implements InvoiceSigner
     private function sendTimestampRequest(string $request): ?string
     {
         $ch = curl_init($this->tsaUrl);
+
+        if ($ch === false) {
+            return null;
+        }
+
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
@@ -550,12 +575,10 @@ final class Pkcs12Signer implements InvoiceSigner
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        if ($response === false || $httpCode !== 200) {
+        if (!is_string($response) || $httpCode !== 200) {
             return null;
         }
 
-        // Extract TimeStampToken from response (skip status bytes)
-        // RFC 3161: TimeStampResp = SEQUENCE { status PKIStatusInfo, timeStampToken ContentInfo }
         if (strlen($response) < 10) {
             return null;
         }
@@ -575,15 +598,16 @@ final class Pkcs12Signer implements InvoiceSigner
     private function getElementById(DOMDocument $doc, string $id): DOMElement
     {
         $xpath = new DOMXPath($doc);
-
-        // Search by Id attribute in all namespaces
         $nodes = $xpath->query("//*[@Id='{$id}']");
 
-        if ($nodes->length === 0) {
+        if ($nodes === false || $nodes->length === 0) {
             throw new RuntimeException("Element with Id '{$id}' not found in document");
         }
 
-        return $nodes->item(0);
+        $node = $nodes->item(0);
+        assert($node instanceof DOMElement);
+
+        return $node;
     }
 
     private function generateId(string $prefix): string
@@ -596,6 +620,7 @@ final class Pkcs12Signer implements InvoiceSigner
         return chunk_split($base64, 76, "\n");
     }
 
+    /** @param array<string, string|array<int, string>> $issuer */
     private function formatIssuerName(array $issuer): string
     {
         $parts = [];
@@ -626,10 +651,10 @@ final class Pkcs12Signer implements InvoiceSigner
 
     private static function pemToDer(string $pem): string
     {
-        $pem = preg_replace('/-----[A-Z ]+-----/', '', $pem);
+        $pem = preg_replace('/-----[A-Z ]+-----/', '', $pem) ?? '';
         $pem = str_replace(["\r", "\n", ' '], '', $pem);
 
-        return base64_decode($pem);
+        return base64_decode($pem, true) ?: '';
     }
 
     private function asn1Length(int $length): string
@@ -647,5 +672,34 @@ final class Pkcs12Signer implements InvoiceSigner
         }
 
         return chr(0x80 | strlen($bytes)) . $bytes;
+    }
+
+    // ─── XPath helpers ───────────────────────────────────
+
+    /** @return \DOMNodeList<\DOMNameSpaceNode|\DOMNode> */
+    private function xpathQuery(DOMXPath $xpath, string $expression, ?\DOMNode $context = null): \DOMNodeList
+    {
+        $result = $context !== null
+            ? $xpath->query($expression, $context)
+            : $xpath->query($expression);
+
+        if ($result === false) {
+            throw new RuntimeException("XPath query failed: {$expression}");
+        }
+
+        return $result;
+    }
+
+    private function xpathQueryOne(DOMXPath $xpath, string $expression, ?\DOMNode $context = null): \DOMNode
+    {
+        $list = $this->xpathQuery($xpath, $expression, $context);
+
+        $node = $list->item(0);
+
+        if (!$node instanceof \DOMNode) {
+            throw new RuntimeException("XPath query returned no results: {$expression}");
+        }
+
+        return $node;
     }
 }

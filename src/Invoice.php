@@ -357,11 +357,13 @@ final class Invoice
      */
     public function generalDiscount(string $reason, ?float $rate = null, ?float $amount = null): self
     {
-        $this->generalDiscounts[] = [
-            'reason' => $reason,
-            'rate'   => $rate,
-            'amount' => $amount ?? 0.0,
-        ];
+        $entry = ['reason' => $reason, 'amount' => $amount ?? 0.0];
+
+        if ($rate !== null) {
+            $entry['rate'] = $rate;
+        }
+
+        $this->generalDiscounts[] = $entry;
 
         return $this;
     }
@@ -373,11 +375,13 @@ final class Invoice
      */
     public function generalCharge(string $reason, ?float $rate = null, ?float $amount = null): self
     {
-        $this->generalCharges[] = [
-            'reason' => $reason,
-            'rate'   => $rate,
-            'amount' => $amount ?? 0.0,
-        ];
+        $entry = ['reason' => $reason, 'amount' => $amount ?? 0.0];
+
+        if ($rate !== null) {
+            $entry['rate'] = $rate;
+        }
+
+        $this->generalCharges[] = $entry;
 
         return $this;
     }

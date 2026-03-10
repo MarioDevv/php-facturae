@@ -31,7 +31,7 @@ final class XmlExporter
         $this->appendParties($root, $invoice);
         $this->appendInvoice($root, $invoice);
 
-        return $this->dom->saveXML();
+        return $this->dom->saveXML() ?: '';
     }
 
     // ─── File Header ─────────────────────────────────────
@@ -47,9 +47,7 @@ final class XmlExporter
         $batch = $this->el('Batch');
         $header->appendChild($batch);
 
-        $batchId = $invoice->getSeller()->taxNumber()
-            . $invoice->getNumber()
-            . $invoice->getSeries();
+        $batchId = $invoice->getSeller()?->taxNumber() . $invoice->getNumber() . $invoice->getSeries();
 
         $batch->appendChild($this->el('BatchIdentifier', $batchId));
         $batch->appendChild($this->el('InvoicesCount', '1'));
@@ -78,13 +76,19 @@ final class XmlExporter
         $parties = $this->el('Parties');
         $root->appendChild($parties);
 
-        $seller = $this->el('SellerParty');
-        $parties->appendChild($seller);
-        $this->appendParty($seller, $invoice->getSeller());
+        $seller = $invoice->getSeller();
+        $buyer  = $invoice->getBuyer();
 
-        $buyer = $this->el('BuyerParty');
-        $parties->appendChild($buyer);
-        $this->appendParty($buyer, $invoice->getBuyer());
+        assert($seller !== null, 'Seller must be set (validated before export)');
+        assert($buyer !== null, 'Buyer must be set (validated before export)');
+
+        $sellerEl = $this->el('SellerParty');
+        $parties->appendChild($sellerEl);
+        $this->appendParty($sellerEl, $seller);
+
+        $buyerEl = $this->el('BuyerParty');
+        $parties->appendChild($buyerEl);
+        $this->appendParty($buyerEl, $buyer);
     }
 
     private function appendParty(DOMElement $parent, Party $party): void
@@ -233,6 +237,10 @@ final class XmlExporter
             $this->maybe($c, 'InvoiceSeriesCode', $invoice->getCorrectedSeries());
 
             $reason = $invoice->getCorrectionReason();
+            $method = $invoice->getCorrectionMethod();
+
+            assert($reason !== null && $method !== null, 'Corrective invoice must have reason and method');
+
             $c->appendChild($this->el('ReasonCode', $reason->value));
             $c->appendChild($this->el('ReasonDescription', $reason->description()));
 
@@ -244,9 +252,9 @@ final class XmlExporter
             $period->appendChild($this->el('StartDate', $periodStart->format('Y-m-d')));
             $period->appendChild($this->el('EndDate', $periodEnd->format('Y-m-d')));
 
-            $c->appendChild($this->el('CorrectionMethod', $invoice->getCorrectionMethod()->value));
+            $c->appendChild($this->el('CorrectionMethod', $method->value));
             $c->appendChild($this->el('CorrectionMethodDescription',
-                $invoice->getCorrectionMethod() === \PhpFacturae\Enums\CorrectionMethod::FullReplacement
+                $method === \PhpFacturae\Enums\CorrectionMethod::FullReplacement
                     ? 'Rectificación íntegra'
                     : 'Rectificación por diferencias',
             ));
@@ -342,7 +350,7 @@ final class XmlExporter
                 $disc = $this->el('Discount');
                 $discountsEl->appendChild($disc);
                 $disc->appendChild($this->el('DiscountReason', $d['reason']));
-                if (isset($d['rate']) && $d['rate'] !== null) {
+                if (isset($d['rate'])) {
                     $disc->appendChild($this->el('DiscountRate', $this->money($d['rate'])));
                     $amount = round($gross * $d['rate'] / 100, 2);
                 } else {
@@ -362,7 +370,7 @@ final class XmlExporter
                 $charge = $this->el('Charge');
                 $chargesEl->appendChild($charge);
                 $charge->appendChild($this->el('ChargeReason', $c['reason']));
-                if (isset($c['rate']) && $c['rate'] !== null) {
+                if (isset($c['rate'])) {
                     $charge->appendChild($this->el('ChargeRate', $this->money($c['rate'])));
                     $amount = round($gross * $c['rate'] / 100, 2);
                 } else {
@@ -670,14 +678,14 @@ final class XmlExporter
 
         $totalDiscounts = 0.0;
         foreach ($invoice->getGeneralDiscounts() as $d) {
-            $totalDiscounts += isset($d['rate']) && $d['rate'] !== null
+            $totalDiscounts += isset($d['rate'])
                 ? round($gross * $d['rate'] / 100, 2)
                 : round($d['amount'], 2);
         }
 
         $totalCharges = 0.0;
         foreach ($invoice->getGeneralCharges() as $c) {
-            $totalCharges += isset($c['rate']) && $c['rate'] !== null
+            $totalCharges += isset($c['rate'])
                 ? round($gross * $c['rate'] / 100, 2)
                 : round($c['amount'], 2);
         }
