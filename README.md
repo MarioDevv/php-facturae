@@ -1,6 +1,6 @@
 # PhpFacturae
 
-[![Tests](https://github.com/php-facturae/php-facturae/actions/workflows/php.yml/badge.svg?branch=master)](https://github.com/php-facturae/php-facturae/actions/workflows/php.yml)
+[![Tests](https://github.com/MarioDevv/php-facturae/actions/workflows/php.yml/badge.svg?branch=master)](https://github.com/php-facturae/php-facturae/actions/workflows/php.yml)
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/php-facturae/php-facturae.svg)](https://packagist.org/packages/php-facturae/php-facturae)
 [![Total Downloads](https://img.shields.io/packagist/dt/php-facturae/php-facturae.svg)](https://packagist.org/packages/php-facturae/php-facturae)
 [![PHP](https://img.shields.io/badge/php-%3E%3D8.2-8892BF)](composer.json)
