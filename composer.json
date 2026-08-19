@@ -29,7 +29,7 @@
     "irpf",
     "php-facturae"
   ],
-  "homepage": "https://github.com/php-facturae/php-facturae",
+  "homepage": "https://github.com/MarioDevv/php-facturae",
   "authors": [
     {
       "name": "Mario Pérez",
@@ -39,13 +39,13 @@
     }
   ],
   "support": {
-    "issues": "https://github.com/php-facturae/php-facturae/issues",
-    "source": "https://github.com/php-facturae/php-facturae"
+    "issues": "https://github.com/MarioDevv/php-facturae/issues",
+    "source": "https://github.com/MarioDevv/php-facturae"
   },
   "funding": [
     {
       "type": "github",
-      "url": "https://github.com/sponsors/php-facturae"
+      "url": "https://github.com/sponsors/MarioDevv"
     }
   ],
   "require": {

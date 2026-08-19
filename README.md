@@ -1,6 +1,6 @@
 # PhpFacturae
 
-[![Tests](https://github.com/MarioDevv/php-facturae/actions/workflows/php.yml/badge.svg?branch=master)](https://github.com/php-facturae/php-facturae/actions/workflows/php.yml)
+[![Tests](https://github.com/MarioDevv/php-facturae/actions/workflows/php.yml/badge.svg?branch=master)](https://github.com/MarioDevv/php-facturae/actions/workflows/php.yml)
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/php-facturae/php-facturae.svg)](https://packagist.org/packages/php-facturae/php-facturae)
 [![Total Downloads](https://img.shields.io/packagist/dt/php-facturae/php-facturae.svg)](https://packagist.org/packages/php-facturae/php-facturae)
 [![PHP](https://img.shields.io/badge/php-%3E%3D8.2-8892BF)](composer.json)
@@ -200,14 +200,14 @@ $signedXml = Pkcs12Signer::pfx('cert.pfx', 'pass')->sign(file_get_contents('fact
 ## Contribuir
 
 ```bash
-git clone https://github.com/php-facturae/php-facturae.git
+git clone https://github.com/MarioDevv/php-facturae.git
 cd php-facturae
 composer install
 vendor/bin/phpunit
 vendor/bin/phpstan analyse src --level=8
 ```
 
-¿Encontraste un bug? [Abre un issue](https://github.com/php-facturae/php-facturae/issues).
+¿Encontraste un bug? [Abre un issue](https://github.com/MarioDevv/php-facturae/issues).
 ¿Quieres aportar código? Los PRs son bienvenidos.
 
 ## Licencia
